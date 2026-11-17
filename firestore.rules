@@ -1,0 +1,236 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny all unknown collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidInvoice(data) {
+      return data.userId is string && data.userId.size() <= 128 &&
+             data.invoiceNumber is string && data.invoiceNumber.size() > 0 && data.invoiceNumber.size() <= 64 &&
+             data.documentType in ['INVOICE', 'QUOTATION'] &&
+             data.billingMode in ['NON_GST', 'GST'] &&
+             data.subtotalMinor is int && data.subtotalMinor >= 0 &&
+             data.grandTotalMinor is int && data.grandTotalMinor >= 0 &&
+             data.amountPaidMinor is int && data.amountPaidMinor >= 0 &&
+             data.balanceDueMinor is int && data.balanceDueMinor >= 0 &&
+             data.status in ['PAID', 'PARTIALLY_PAID', 'UNPAID', 'CANCELLED', 'QUOTATION'] &&
+             data.items is list && data.items.size() <= 100 &&
+             (!('customerId' in data) || data.customerId is string) &&
+             (!('customerName' in data) || data.customerName is string) &&
+             (!('customerPhone' in data) || data.customerPhone is string) &&
+             (!('customerAddress' in data) || data.customerAddress is string) &&
+             (!('customerGstin' in data) || data.customerGstin is string) &&
+             (!('placeOfSupply' in data) || data.placeOfSupply is string) &&
+             (!('discountType' in data) || data.discountType in ['FIXED', 'PERCENTAGE']) &&
+             (!('discountValue' in data) || data.discountValue is number) &&
+             (!('discountMinor' in data) || data.discountMinor is int) &&
+             (!('taxableTotalMinor' in data) || data.taxableTotalMinor is int) &&
+             (!('cgstMinor' in data) || data.cgstMinor is int) &&
+             (!('sgstMinor' in data) || data.sgstMinor is int) &&
+             (!('igstMinor' in data) || data.igstMinor is int) &&
+             (!('paymentMethod' in data) || data.paymentMethod is string) &&
+             (!('notes' in data) || data.notes is string) &&
+             (!('cancelledReason' in data) || data.cancelledReason is string) &&
+             (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    function isValidCustomer(data) {
+      return data.userId is string && data.userId.size() <= 128 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 128 &&
+             data.totalOutstandingMinor is int &&
+             (!('phone' in data) || data.phone is string) &&
+             (!('address' in data) || data.address is string) &&
+             (!('gstin' in data) || data.gstin is string) &&
+             (!('group' in data) || data.group is string) &&
+             (!('notes' in data) || data.notes is string) &&
+             (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    function isValidPayment(data) {
+      return data.userId is string && data.userId.size() <= 128 &&
+             data.method in ['CASH', 'UPI', 'BANK', 'CARD', 'OTHER'] &&
+             data.amountMinor is int && data.amountMinor > 0 &&
+             (!('customerId' in data) || data.customerId is string) &&
+             (!('customerName' in data) || data.customerName is string) &&
+             (!('invoiceId' in data) || data.invoiceId is string) &&
+             (!('invoiceNumber' in data) || data.invoiceNumber is string) &&
+             (!('paymentDate' in data) || data.paymentDate is string) &&
+             (!('reference' in data) || data.reference is string) &&
+             (!('notes' in data) || data.notes is string) &&
+             (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    function isValidCashSession(data) {
+      return data.userId is string && data.userId.size() <= 128 &&
+             data.openingCashMinor is int && data.openingCashMinor >= 0 &&
+             data.status in ['OPEN', 'CLOSED'] &&
+             (!('openedAt' in data) || data.openedAt is timestamp) &&
+             (!('closedAt' in data) || data.closedAt is timestamp) &&
+             (!('expectedCashMinor' in data) || data.expectedCashMinor is int) &&
+             (!('countedCashMinor' in data) || data.countedCashMinor is int) &&
+             (!('varianceMinor' in data) || data.varianceMinor is int) &&
+             (!('closingNotes' in data) || data.closingNotes is string) &&
+             (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    function isValidSettings(data) {
+      return data.userId is string && data.userId.size() <= 128 &&
+             data.businessName is string && data.businessName.size() > 0 && data.businessName.size() <= 128 &&
+             (!('address' in data) || data.address is string) &&
+             (!('phone' in data) || data.phone is string) &&
+             (!('email' in data) || data.email is string) &&
+             (!('gstin' in data) || data.gstin is string) &&
+             (!('stateCode' in data) || data.stateCode is string) &&
+             (!('invoicePrefix' in data) || data.invoicePrefix is string) &&
+             (!('termsAndConditions' in data) || data.termsAndConditions is string) &&
+             (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    function isValidSavedItem(data) {
+      return data.userId is string && data.userId.size() <= 128 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 128 &&
+             data.normalizedName is string && data.normalizedName.size() > 0 && data.normalizedName.size() <= 128 &&
+             data.rateMinor is int && data.rateMinor >= 0 &&
+             (!('unitLabel' in data) || data.unitLabel is string) &&
+             (!('defaultDiscountType' in data) || data.defaultDiscountType in ['FIXED', 'PERCENTAGE']) &&
+             (!('defaultDiscountValue' in data) || data.defaultDiscountValue is number) &&
+             (!('hsnSac' in data) || data.hsnSac is string) &&
+             (!('taxRateBps' in data) || data.taxRateBps is int) &&
+             (!('useCount' in data) || data.useCount is int) &&
+             (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    match /users/{userId} {
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
+
+      match /invoices/{invoiceId} {
+        allow get, list: if isSignedIn() && request.auth.uid == userId;
+        allow create: if isSignedIn() && request.auth.uid == userId &&
+                         isValidId(invoiceId) &&
+                         incoming().userId == userId &&
+                         incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                         isValidInvoice(incoming());
+        allow update: if isSignedIn() && request.auth.uid == userId &&
+                         isValidId(invoiceId) &&
+                         incoming().userId == existing().userId &&
+                         incoming().invoiceNumber == existing().invoiceNumber &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidInvoice(incoming()) &&
+                         (!('updatedAt' in incoming()) || incoming().updatedAt <= request.time) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'documentType', 'billingMode', 'placeOfSupply',
+                           'subtotalMinor', 'discountType', 'discountValue', 'discountMinor',
+                           'taxableTotalMinor', 'cgstMinor', 'sgstMinor', 'igstMinor',
+                           'grandTotalMinor', 'amountPaidMinor', 'balanceDueMinor',
+                           'paymentMethod', 'status', 'notes', 'cancelledReason',
+                           'customerId', 'customerName', 'customerPhone', 'customerAddress', 'customerGstin',
+                           'items', 'updatedAt'
+                         ]);
+        allow delete: if false;
+      }
+
+      match /customers/{customerId} {
+        allow get, list: if isSignedIn() && request.auth.uid == userId;
+        allow create: if isSignedIn() && request.auth.uid == userId &&
+                         isValidId(customerId) &&
+                         incoming().userId == userId &&
+                         incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                         isValidCustomer(incoming());
+        allow update: if isSignedIn() && request.auth.uid == userId &&
+                         isValidId(customerId) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidCustomer(incoming()) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'name', 'phone', 'address', 'gstin', 'group',
+                           'totalOutstandingMinor', 'notes', 'updatedAt'
+                         ]);
+        allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(customerId);
+      }
+
+      match /payments/{paymentId} {
+        allow get, list: if isSignedIn() && request.auth.uid == userId;
+        allow create: if isSignedIn() && request.auth.uid == userId &&
+                         isValidId(paymentId) &&
+                         incoming().userId == userId &&
+                         incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                         isValidPayment(incoming());
+        allow update: if isSignedIn() && request.auth.uid == userId &&
+                         isValidId(paymentId) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidPayment(incoming()) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['notes', 'reference', 'updatedAt']);
+        allow delete: if false;
+      }
+
+      match /cash_sessions/{sessionId} {
+        allow get, list: if isSignedIn() && request.auth.uid == userId;
+        allow create: if isSignedIn() && request.auth.uid == userId &&
+                         isValidId(sessionId) &&
+                         incoming().userId == userId &&
+                         incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                         isValidCashSession(incoming());
+        allow update: if isSignedIn() && request.auth.uid == userId &&
+                         isValidId(sessionId) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidCashSession(incoming()) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'status', 'closedAt', 'expectedCashMinor',
+                           'countedCashMinor', 'varianceMinor', 'closingNotes', 'updatedAt'
+                         ]);
+        allow delete: if false;
+      }
+
+      match /settings/{settingId} {
+        allow get, list: if isSignedIn() && request.auth.uid == userId;
+        allow create, update: if isSignedIn() && request.auth.uid == userId &&
+                                 isValidId(settingId) &&
+                                 incoming().userId == userId &&
+                                 isValidSettings(incoming());
+        allow delete: if false;
+      }
+
+      match /items/{itemId} {
+        allow get, list: if isSignedIn() && request.auth.uid == userId;
+        allow create: if isSignedIn() && request.auth.uid == userId &&
+                         isValidId(itemId) &&
+                         incoming().userId == userId &&
+                         incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                         isValidSavedItem(incoming());
+        allow update: if isSignedIn() && request.auth.uid == userId &&
+                         isValidId(itemId) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidSavedItem(incoming()) &&
+                         (!('updatedAt' in incoming()) || incoming().updatedAt <= request.time) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'name', 'normalizedName', 'unitLabel', 'rateMinor',
+                           'defaultDiscountType', 'defaultDiscountValue',
+                           'hsnSac', 'taxRateBps', 'useCount', 'updatedAt'
+                         ]);
+        allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(itemId);
+      }
+    }
+  }
+}

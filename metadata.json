@@ -1,0 +1,6 @@
+{
+  "name": "Billing App",
+  "description": "Retail billing, customer ledger, and cash register app for Meher Basan Bhandar",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

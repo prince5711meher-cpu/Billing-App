@@ -1,0 +1,472 @@
+{
+  "entities": {
+    "Invoice": {
+      "title": "Invoice",
+      "description": "Retail invoice or quotation document with item snapshots and tax breakdown",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner user ID"
+        },
+        "invoiceNumber": {
+          "type": "string",
+          "description": "Human-readable invoice sequence number (e.g. INV-2026-0001)"
+        },
+        "documentType": {
+          "type": "string",
+          "enum": ["INVOICE", "QUOTATION"],
+          "description": "Document classification"
+        },
+        "customerId": {
+          "type": "string",
+          "description": "Customer ID or empty string for walk-in"
+        },
+        "customerName": {
+          "type": "string",
+          "description": "Customer name snapshot"
+        },
+        "customerPhone": {
+          "type": "string",
+          "description": "Customer phone snapshot"
+        },
+        "customerAddress": {
+          "type": "string",
+          "description": "Customer address snapshot"
+        },
+        "customerGstin": {
+          "type": "string",
+          "description": "Customer GSTIN snapshot"
+        },
+        "billingMode": {
+          "type": "string",
+          "enum": ["NON_GST", "GST"],
+          "description": "Billing mode"
+        },
+        "placeOfSupply": {
+          "type": "string",
+          "description": "Place of supply state or code"
+        },
+        "subtotalMinor": {
+          "type": "integer",
+          "description": "Subtotal in paise"
+        },
+        "discountType": {
+          "type": "string",
+          "enum": ["FIXED", "PERCENTAGE"],
+          "description": "Discount calculation type"
+        },
+        "discountValue": {
+          "type": "number",
+          "description": "Discount numeric value"
+        },
+        "discountMinor": {
+          "type": "integer",
+          "description": "Computed discount in paise"
+        },
+        "taxableTotalMinor": {
+          "type": "integer",
+          "description": "Taxable subtotal in paise"
+        },
+        "cgstMinor": {
+          "type": "integer",
+          "description": "CGST in paise"
+        },
+        "sgstMinor": {
+          "type": "integer",
+          "description": "SGST in paise"
+        },
+        "igstMinor": {
+          "type": "integer",
+          "description": "IGST in paise"
+        },
+        "grandTotalMinor": {
+          "type": "integer",
+          "description": "Final grand total in paise"
+        },
+        "amountPaidMinor": {
+          "type": "integer",
+          "description": "Amount received in paise"
+        },
+        "balanceDueMinor": {
+          "type": "integer",
+          "description": "Balance due in paise"
+        },
+        "paymentMethod": {
+          "type": "string",
+          "description": "Payment method recorded (e.g. CASH, UPI, CARD, SPLIT)"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["PAID", "PARTIALLY_PAID", "UNPAID", "CANCELLED", "QUOTATION"],
+          "description": "Payment and billing status"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Customer remarks or bill notes"
+        },
+        "cancelledReason": {
+          "type": "string",
+          "description": "Reason for cancellation if cancelled"
+        },
+        "items": {
+          "type": "array",
+          "description": "Array of invoice line item objects"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last updated timestamp"
+        }
+      },
+      "required": [
+        "userId",
+        "invoiceNumber",
+        "documentType",
+        "billingMode",
+        "subtotalMinor",
+        "grandTotalMinor",
+        "amountPaidMinor",
+        "balanceDueMinor",
+        "status",
+        "items",
+        "createdAt"
+      ]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "Customer contact profile, credit status, and outstanding ledger balance",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner user ID"
+        },
+        "name": {
+          "type": "string",
+          "description": "Customer full name"
+        },
+        "phone": {
+          "type": "string",
+          "description": "Contact phone number"
+        },
+        "address": {
+          "type": "string",
+          "description": "Physical address"
+        },
+        "gstin": {
+          "type": "string",
+          "description": "Customer GST identification number"
+        },
+        "group": {
+          "type": "string",
+          "description": "Customer category or group"
+        },
+        "totalOutstandingMinor": {
+          "type": "integer",
+          "description": "Total balance due in paise"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Customer notes"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last updated timestamp"
+        }
+      },
+      "required": [
+        "userId",
+        "name",
+        "totalOutstandingMinor",
+        "createdAt"
+      ]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Payment receipt or settlement allocated to an invoice or customer ledger",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner user ID"
+        },
+        "customerId": {
+          "type": "string",
+          "description": "Associated customer ID"
+        },
+        "customerName": {
+          "type": "string",
+          "description": "Customer name snapshot"
+        },
+        "invoiceId": {
+          "type": "string",
+          "description": "Associated invoice ID if allocated to a specific invoice"
+        },
+        "invoiceNumber": {
+          "type": "string",
+          "description": "Associated invoice number"
+        },
+        "paymentDate": {
+          "type": "string",
+          "description": "Date of payment"
+        },
+        "method": {
+          "type": "string",
+          "enum": ["CASH", "UPI", "BANK", "CARD", "OTHER"],
+          "description": "Payment instrument"
+        },
+        "amountMinor": {
+          "type": "integer",
+          "description": "Payment amount in paise"
+        },
+        "reference": {
+          "type": "string",
+          "description": "UPI / Bank / Card transaction reference"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Payment note"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last updated timestamp"
+        }
+      },
+      "required": [
+        "userId",
+        "method",
+        "amountMinor",
+        "createdAt"
+      ]
+    },
+    "CashSession": {
+      "title": "CashSession",
+      "description": "Counter cash drawer daily opening and closing session",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner user ID"
+        },
+        "openedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Drawer opening timestamp"
+        },
+        "openingCashMinor": {
+          "type": "integer",
+          "description": "Opening cash in paise"
+        },
+        "closedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Drawer closing timestamp"
+        },
+        "expectedCashMinor": {
+          "type": "integer",
+          "description": "Calculated expected cash in paise"
+        },
+        "countedCashMinor": {
+          "type": "integer",
+          "description": "Physical cash counted in paise"
+        },
+        "varianceMinor": {
+          "type": "integer",
+          "description": "Cash shortage or excess in paise"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["OPEN", "CLOSED"],
+          "description": "Drawer session state"
+        },
+        "closingNotes": {
+          "type": "string",
+          "description": "Closing remarks or variance explanation"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last updated timestamp"
+        }
+      },
+      "required": [
+        "userId",
+        "openingCashMinor",
+        "status",
+        "createdAt"
+      ]
+    },
+    "BusinessSettings": {
+      "title": "BusinessSettings",
+      "description": "Shop profile and billing defaults",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner user ID"
+        },
+        "businessName": {
+          "type": "string",
+          "description": "Shop commercial name"
+        },
+        "address": {
+          "type": "string",
+          "description": "Shop street address"
+        },
+        "phone": {
+          "type": "string",
+          "description": "Shop contact phone"
+        },
+        "email": {
+          "type": "string",
+          "description": "Shop email address"
+        },
+        "gstin": {
+          "type": "string",
+          "description": "Shop GSTIN"
+        },
+        "stateCode": {
+          "type": "string",
+          "description": "Shop state and code"
+        },
+        "invoicePrefix": {
+          "type": "string",
+          "description": "Default invoice prefix"
+        },
+        "termsAndConditions": {
+          "type": "string",
+          "description": "Default invoice footer terms"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last updated timestamp"
+        }
+      },
+      "required": [
+        "userId",
+        "businessName",
+        "createdAt"
+      ]
+    },
+    "SavedItem": {
+      "title": "SavedItem",
+      "description": "Reusable retail item template auto-saved during billing",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner user ID"
+        },
+        "name": {
+          "type": "string",
+          "description": "Item display name"
+        },
+        "normalizedName": {
+          "type": "string",
+          "description": "Lowercase trimmed item name for deduplication"
+        },
+        "unitLabel": {
+          "type": "string",
+          "description": "Unit of measure (e.g. pcs, kg, box)"
+        },
+        "rateMinor": {
+          "type": "integer",
+          "description": "Default selling rate in paise"
+        },
+        "defaultDiscountType": {
+          "type": "string",
+          "enum": ["FIXED", "PERCENTAGE"],
+          "description": "Default item discount type"
+        },
+        "defaultDiscountValue": {
+          "type": "number",
+          "description": "Default item discount value"
+        },
+        "hsnSac": {
+          "type": "string",
+          "description": "HSN or SAC code"
+        },
+        "taxRateBps": {
+          "type": "integer",
+          "description": "GST rate in basis points"
+        },
+        "useCount": {
+          "type": "integer",
+          "description": "Number of times billed"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last updated timestamp"
+        }
+      },
+      "required": [
+        "userId",
+        "name",
+        "normalizedName",
+        "rateMinor",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/invoices/{invoiceId}": {
+      "schema": "Invoice",
+      "description": "Invoices and quotations issued by the shop owner"
+    },
+    "/users/{userId}/customers/{customerId}": {
+      "schema": "Customer",
+      "description": "Customer profiles and credit ledgers"
+    },
+    "/users/{userId}/payments/{paymentId}": {
+      "schema": "Payment",
+      "description": "Payments received and adjustments"
+    },
+    "/users/{userId}/cash_sessions/{sessionId}": {
+      "schema": "CashSession",
+      "description": "Daily cash register drawer sessions"
+    },
+    "/users/{userId}/settings/{settingId}": {
+      "schema": "BusinessSettings",
+      "description": "Business profile and invoice preferences"
+    },
+    "/users/{userId}/items/{itemId}": {
+      "schema": "SavedItem",
+      "description": "Auto-saved and manually managed item catalog per user"
+    }
+  }
+}
