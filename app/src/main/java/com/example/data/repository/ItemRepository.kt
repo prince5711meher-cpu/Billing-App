@@ -13,10 +13,12 @@ import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.snapshots
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 
@@ -46,6 +48,7 @@ class ItemRepository(private val db: FirebaseFirestore) {
         .map { snapshot ->
           snapshot.toObjects(SavedItem::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
         }
+        .flowOn(Dispatchers.Default)
         .catch { error ->
           val firestoreError = generateSequence(error) { it.cause }
             .filterIsInstance<FirebaseFirestoreException>()

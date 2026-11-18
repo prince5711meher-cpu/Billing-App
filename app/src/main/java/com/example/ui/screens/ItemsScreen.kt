@@ -1,10 +1,12 @@
 package com.example.ui.screens
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -30,8 +33,6 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -40,7 +41,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -49,7 +49,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,19 +57,32 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.domain.MoneyFormatter
 import com.example.data.model.SavedItem
-import com.example.ui.theme.BorderLight
 import com.example.ui.theme.PrimaryBlue
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
+import com.example.ui.theme.SurfaceLight
 import com.example.ui.theme.WarningOrange
 import kotlinx.coroutines.launch
+
+private val ItemsShape16 = RoundedCornerShape(16.dp)
+private val ItemsShape14 = RoundedCornerShape(14.dp)
+private val ItemsShape12 = RoundedCornerShape(12.dp)
+private val ItemsShape10 = RoundedCornerShape(10.dp)
+
+@Immutable
+private data class SavedItemRowUi(
+  val item: SavedItem,
+  val formattedRate: String,
+  val usageText: String
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,32 +92,41 @@ fun ItemsScreen(
   onNavigateToNewBill: () -> Unit,
   onNavigateToSettings: () -> Unit
 ) {
-  val savedItems by itemsViewModel.itemsState.collectAsState()
-  val isSaving by itemsViewModel.isSaving.collectAsState()
+  val savedItems by itemsViewModel.itemsState.collectAsStateWithLifecycle()
+  val isSaving by itemsViewModel.isSaving.collectAsStateWithLifecycle()
+  val listState = rememberLazyListState()
   val snackbarHostState = remember { SnackbarHostState() }
   val coroutineScope = rememberCoroutineScope()
+
+  val colorScheme = MaterialTheme.colorScheme
+  val surfaceColor = colorScheme.surface
+  val borderColor = colorScheme.outline
+  val textPrimary = colorScheme.onSurface
+  val textSecondary = colorScheme.onSurfaceVariant
 
   var searchQuery by remember { mutableStateOf("") }
   var showItemSheet by remember { mutableStateOf(false) }
   var itemBeingEdited by remember { mutableStateOf<SavedItem?>(null) }
   var itemPendingDelete by remember { mutableStateOf<SavedItem?>(null) }
 
-  val filteredItems = remember(savedItems, searchQuery) {
+  val filteredRows = remember(savedItems, searchQuery) {
     val q = searchQuery.trim()
-    if (q.isEmpty()) {
-      savedItems
-    } else {
-      savedItems.filter { it.name.contains(q, ignoreCase = true) }
-    }
+    savedItems.asSequence()
+      .filter { q.isEmpty() || it.name.contains(q, ignoreCase = true) }
+      .map { item ->
+        SavedItemRowUi(
+          item = item,
+          formattedRate = MoneyFormatter.formatPaise(item.rateMinor),
+          usageText = "Billed ${item.useCount}×"
+        )
+      }
+      .toList()
   }
 
-  Scaffold(
-    snackbarHost = { SnackbarHost(snackbarHostState) }
-  ) { paddingValues ->
+  Box(modifier = Modifier.fillMaxSize()) {
     Column(
       modifier = Modifier
         .fillMaxSize()
-        .padding(paddingValues)
         .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
       // Header
@@ -116,14 +138,14 @@ fun ItemsScreen(
         Column(modifier = Modifier.weight(1f)) {
           Text(
             text = "Saved Items",
-            style = MaterialTheme.typography.titleLarge.copy(
-              fontWeight = FontWeight.Bold,
-              color = TextPrimary
-            )
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = textPrimary
           )
           Text(
             text = "${savedItems.size} items • Auto-saved with name & price",
-            style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
+            style = MaterialTheme.typography.bodySmall,
+            color = textSecondary
           )
         }
 
@@ -135,7 +157,7 @@ fun ItemsScreen(
             Icon(
               imageVector = Icons.Default.Settings,
               contentDescription = "Settings",
-              tint = TextSecondary
+              tint = textSecondary
             )
           }
           Spacer(modifier = Modifier.width(4.dp))
@@ -147,7 +169,7 @@ fun ItemsScreen(
             modifier = Modifier
               .height(48.dp)
               .testTag("add_saved_item_button"),
-            shape = RoundedCornerShape(10.dp),
+            shape = ItemsShape10,
             colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)
           ) {
             Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -167,7 +189,7 @@ fun ItemsScreen(
           .fillMaxWidth()
           .testTag("search_saved_items_input"),
         placeholder = { Text("Search saved items by name...") },
-        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = TextSecondary) },
+        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = textSecondary) },
         trailingIcon = {
           if (searchQuery.isNotEmpty()) {
             IconButton(onClick = { searchQuery = "" }) {
@@ -176,83 +198,92 @@ fun ItemsScreen(
           }
         },
         singleLine = true,
-        shape = RoundedCornerShape(12.dp)
+        shape = ItemsShape12
       )
 
       Spacer(modifier = Modifier.height(12.dp))
 
-      if (filteredItems.isEmpty()) {
+      if (filteredRows.isEmpty()) {
         Box(
           modifier = Modifier
             .fillMaxWidth()
             .weight(1f),
           contentAlignment = Alignment.Center
         ) {
-          Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            border = BorderStroke(1.dp, BorderLight)
+          Column(
+            modifier = Modifier
+              .fillMaxWidth()
+              .background(surfaceColor, ItemsShape16)
+              .border(1.dp, borderColor, ItemsShape16)
+              .padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
           ) {
-            Column(
+            Box(
               modifier = Modifier
-                .fillMaxWidth()
-                .padding(28.dp),
-              horizontalAlignment = Alignment.CenterHorizontally
+                .size(56.dp)
+                .background(PrimaryBlue.copy(alpha = 0.1f), ItemsShape14),
+              contentAlignment = Alignment.Center
             ) {
-              Box(
-                modifier = Modifier
-                  .size(56.dp)
-                  .background(PrimaryBlue.copy(alpha = 0.1f), RoundedCornerShape(14.dp)),
-                contentAlignment = Alignment.Center
-              ) {
-                Icon(
-                  imageVector = Icons.Default.Inventory2,
-                  contentDescription = null,
-                  tint = PrimaryBlue,
-                  modifier = Modifier.size(28.dp)
-                )
-              }
-              Spacer(modifier = Modifier.height(12.dp))
-              Text(
-                text = if (savedItems.isEmpty()) "No Saved Items Yet" else "No Matching Items",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+              Icon(
+                imageVector = Icons.Default.Inventory2,
+                contentDescription = null,
+                tint = PrimaryBlue,
+                modifier = Modifier.size(28.dp)
               )
-              Spacer(modifier = Modifier.height(6.dp))
-              Text(
-                text = if (savedItems.isEmpty()) {
-                  "Whenever you add an item while creating a bill, its name and price are automatically saved here for 1-tap reuse."
-                } else {
-                  "Try searching with a different keyword or add a new item."
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+              text = if (savedItems.isEmpty()) "No Saved Items Yet" else "No Matching Items",
+              style = MaterialTheme.typography.titleMedium,
+              fontWeight = FontWeight.Bold,
+              color = textPrimary
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+              text = if (savedItems.isEmpty()) {
+                "Whenever you add an item while creating a bill, its name and price are automatically saved here for 1-tap reuse."
+              } else {
+                "Try searching with a different keyword or add a new item."
+              },
+              style = MaterialTheme.typography.bodySmall,
+              color = textSecondary
+            )
+            if (savedItems.isEmpty()) {
+              Spacer(modifier = Modifier.height(16.dp))
+              OutlinedButton(
+                onClick = {
+                  itemBeingEdited = null
+                  showItemSheet = true
                 },
-                style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
-              )
-              if (savedItems.isEmpty()) {
-                Spacer(modifier = Modifier.height(16.dp))
-                OutlinedButton(
-                  onClick = {
-                    itemBeingEdited = null
-                    showItemSheet = true
-                  },
-                  modifier = Modifier.height(48.dp),
-                  shape = RoundedCornerShape(10.dp)
-                ) {
-                  Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                  Spacer(modifier = Modifier.width(6.dp))
-                  Text("Add First Item")
-                }
+                modifier = Modifier.height(48.dp),
+                shape = ItemsShape10
+              ) {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Add First Item")
               }
             }
           }
         }
       } else {
         LazyColumn(
+          state = listState,
           modifier = Modifier.weight(1f),
+          contentPadding = PaddingValues(bottom = 24.dp),
           verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-          items(filteredItems, key = { it.id }) { item ->
+          items(
+            items = filteredRows,
+            key = { it.item.id },
+            contentType = { "saved_item" }
+          ) { row ->
+            val item = row.item
             SavedItemCard(
-              item = item,
+              row = row,
+              surfaceColor = surfaceColor,
+              borderColor = borderColor,
+              textPrimary = textPrimary,
+              textSecondary = textSecondary,
               onAddToBill = {
                 onAddToBill(item)
                 coroutineScope.launch {
@@ -275,13 +306,16 @@ fun ItemsScreen(
               }
             )
           }
-
-          item {
-            Spacer(modifier = Modifier.height(24.dp))
-          }
         }
       }
     }
+
+    SnackbarHost(
+      hostState = snackbarHostState,
+      modifier = Modifier
+        .align(Alignment.BottomCenter)
+        .padding(8.dp)
+    )
   }
 
   if (showItemSheet) {
@@ -348,102 +382,111 @@ fun ItemsScreen(
 
 @Composable
 private fun SavedItemCard(
-  item: SavedItem,
+  row: SavedItemRowUi,
+  surfaceColor: Color,
+  borderColor: Color,
+  textPrimary: Color,
+  textSecondary: Color,
   onAddToBill: () -> Unit,
   onEdit: () -> Unit,
   onDelete: () -> Unit
 ) {
-  Card(
+  val item = row.item
+  Column(
     modifier = Modifier
       .fillMaxWidth()
-      .testTag("saved_item_card_${item.id}"),
-    shape = RoundedCornerShape(14.dp),
-    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    border = BorderStroke(1.dp, BorderLight),
-    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+      .background(surfaceColor, ItemsShape14)
+      .border(1.dp, borderColor, ItemsShape14)
+      .padding(14.dp)
+      .testTag("saved_item_card_${item.id}")
   ) {
-    Column(
-      modifier = Modifier
-        .fillMaxWidth()
-        .padding(14.dp)
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.SpaceBetween,
+      verticalAlignment = Alignment.CenterVertically
     ) {
-      Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-      ) {
-        Column(modifier = Modifier.weight(1f)) {
-          Text(
-            text = item.name,
-            style = MaterialTheme.typography.titleMedium.copy(
-              fontWeight = FontWeight.Bold,
-              color = TextPrimary
-            )
-          )
-          Spacer(modifier = Modifier.height(4.dp))
-          Text(
-            text = "Billed ${item.useCount}×",
-            style = MaterialTheme.typography.labelSmall.copy(color = TextSecondary)
-          )
-        }
-
+      Column(modifier = Modifier.weight(1f)) {
         Text(
-          text = MoneyFormatter.formatPaise(item.rateMinor),
-          style = MaterialTheme.typography.titleLarge.copy(
-            fontWeight = FontWeight.Bold,
-            color = PrimaryBlue
-          )
+          text = item.name,
+          style = MaterialTheme.typography.titleMedium,
+          fontWeight = FontWeight.Bold,
+          color = textPrimary
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+          text = row.usageText,
+          style = MaterialTheme.typography.labelSmall,
+          color = textSecondary
         )
       }
 
-      Spacer(modifier = Modifier.height(10.dp))
-      HorizontalDivider(color = BorderLight.copy(alpha = 0.7f))
-      Spacer(modifier = Modifier.height(8.dp))
+      Text(
+        text = row.formattedRate,
+        style = MaterialTheme.typography.titleLarge,
+        fontWeight = FontWeight.Bold,
+        color = PrimaryBlue
+      )
+    }
 
+    Spacer(modifier = Modifier.height(10.dp))
+    HorizontalDivider(color = borderColor.copy(alpha = 0.7f))
+    Spacer(modifier = Modifier.height(8.dp))
+
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+      verticalAlignment = Alignment.CenterVertically
+    ) {
       Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier
+          .weight(1f)
+          .height(48.dp)
+          .clip(ItemsShape10)
+          .background(PrimaryBlue, ItemsShape10)
+          .clickable(onClick = onAddToBill)
+          .testTag("add_saved_to_bill_${item.id}"),
+        horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
       ) {
-        Button(
-          onClick = onAddToBill,
-          modifier = Modifier
-            .weight(1f)
-            .height(48.dp)
-            .testTag("add_saved_to_bill_${item.id}"),
-          shape = RoundedCornerShape(10.dp),
-          colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)
-        ) {
-          Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-          Spacer(modifier = Modifier.width(6.dp))
-          Text("Add to Bill", fontWeight = FontWeight.SemiBold)
-        }
+        Icon(
+          imageVector = Icons.Default.Add,
+          contentDescription = null,
+          tint = SurfaceLight,
+          modifier = Modifier.size(18.dp)
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+          text = "Add to Bill",
+          color = SurfaceLight,
+          fontWeight = FontWeight.SemiBold,
+          fontSize = 14.sp
+        )
+      }
 
-        IconButton(
-          onClick = onEdit,
-          modifier = Modifier
-            .size(48.dp)
-            .testTag("edit_saved_item_${item.id}")
-        ) {
-          Icon(
-            imageVector = Icons.Default.Edit,
-            contentDescription = "Edit ${item.name}",
-            tint = PrimaryBlue
-          )
-        }
+      IconButton(
+        onClick = onEdit,
+        modifier = Modifier
+          .size(48.dp)
+          .testTag("edit_saved_item_${item.id}")
+      ) {
+        Icon(
+          imageVector = Icons.Default.Edit,
+          contentDescription = "Edit ${item.name}",
+          tint = PrimaryBlue
+        )
+      }
 
-        IconButton(
-          onClick = onDelete,
-          modifier = Modifier
-            .size(48.dp)
-            .testTag("delete_saved_item_${item.id}")
-        ) {
-          Icon(
-            imageVector = Icons.Default.Delete,
-            contentDescription = "Delete ${item.name}",
-            tint = WarningOrange
-          )
-        }
+      IconButton(
+        onClick = onDelete,
+        modifier = Modifier
+          .size(48.dp)
+          .testTag("delete_saved_item_${item.id}")
+      ) {
+        Icon(
+          imageVector = Icons.Default.Delete,
+          contentDescription = "Delete ${item.name}",
+          tint = WarningOrange
+        )
       }
     }
   }
@@ -483,7 +526,8 @@ private fun EditSavedItemSheet(
     ) {
       Text(
         text = if (initialItem == null) "Add Saved Item" else "Edit Saved Item",
-        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+        style = MaterialTheme.typography.titleLarge,
+        fontWeight = FontWeight.Bold
       )
 
       Spacer(modifier = Modifier.height(12.dp))
@@ -497,7 +541,7 @@ private fun EditSavedItemSheet(
           .fillMaxWidth()
           .testTag("saved_item_name_input"),
         singleLine = true,
-        shape = RoundedCornerShape(10.dp)
+        shape = ItemsShape10
       )
 
       Spacer(modifier = Modifier.height(10.dp))
@@ -511,7 +555,7 @@ private fun EditSavedItemSheet(
           .fillMaxWidth()
           .testTag("saved_item_rate_input"),
         singleLine = true,
-        shape = RoundedCornerShape(10.dp)
+        shape = ItemsShape10
       )
 
       if (errorMsg != null) {
@@ -530,7 +574,7 @@ private fun EditSavedItemSheet(
           modifier = Modifier
             .weight(1f)
             .height(48.dp),
-          shape = RoundedCornerShape(10.dp)
+          shape = ItemsShape10
         ) {
           Text("Cancel")
         }
@@ -553,7 +597,7 @@ private fun EditSavedItemSheet(
             .weight(1.5f)
             .height(48.dp)
             .testTag("save_catalog_item_button"),
-          shape = RoundedCornerShape(10.dp),
+          shape = ItemsShape10,
           colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)
         ) {
           Text(if (initialItem == null) "Save Item" else "Update Item", fontWeight = FontWeight.SemiBold)

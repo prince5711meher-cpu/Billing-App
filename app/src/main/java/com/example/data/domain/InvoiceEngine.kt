@@ -1,25 +1,30 @@
 package com.example.data.domain
 
+import androidx.compose.runtime.Immutable
 import com.example.data.model.InvoiceItem
 import java.text.NumberFormat
 import java.util.Locale
 import kotlin.math.roundToLong
 
 object MoneyFormatter {
-  private val inrLocale = Locale("en", "IN")
-  private val formatter = NumberFormat.getNumberInstance(inrLocale).apply {
-    minimumFractionDigits = 2
-    maximumFractionDigits = 2
+  private val formatterThreadLocal = object : ThreadLocal<NumberFormat>() {
+    override fun initialValue(): NumberFormat {
+      val inrLocale = Locale("en", "IN")
+      return NumberFormat.getNumberInstance(inrLocale).apply {
+        minimumFractionDigits = 2
+        maximumFractionDigits = 2
+      }
+    }
   }
 
-  fun formatPaise(paise: Long): String {
-    val rupees = paise / 100.0
-    return "₹" + formatter.format(rupees)
+  private fun formatValue(value: Double): String {
+    val formatter = formatterThreadLocal.get()!!
+    return "₹" + formatter.format(value)
   }
 
-  fun formatRupeesDecimal(rupees: Double): String {
-    return "₹" + formatter.format(rupees)
-  }
+  fun formatPaise(paise: Long): String = formatValue(paise / 100.0)
+
+  fun formatRupeesDecimal(rupees: Double): String = formatValue(rupees)
 
   fun parseRupeesToPaise(input: String): Long {
     val clean = input.replace("₹", "").replace(",", "").trim()
@@ -28,6 +33,7 @@ object MoneyFormatter {
   }
 }
 
+@Immutable
 data class InvoiceCalculationResult(
   val items: List<InvoiceItem>,
   val itemsGrossSubtotalMinor: Long,

@@ -1,9 +1,11 @@
 package com.example.data.model
 
 import androidx.annotation.Keep
+import androidx.compose.runtime.Immutable
 import com.google.firebase.firestore.IgnoreExtraProperties
 
 @Keep
+@Immutable
 @IgnoreExtraProperties
 data class InvoiceItem(
   val description: String = "",

@@ -18,10 +18,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.credentials.CredentialManager
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ui.auth.AuthScreen
 import com.example.ui.auth.attemptAutoSignIn
 import com.example.ui.navigation.AppNavigation
 import com.example.ui.theme.BillingAppTheme
+import com.example.ui.update.MandatoryUpdateScreen
+import com.example.ui.update.OptionalUpdateDialog
+import com.example.ui.update.UpdateViewModel
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.auth
@@ -46,12 +54,28 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun AppRoot() {
+fun AppRoot(
+  updateViewModel: UpdateViewModel = viewModel()
+) {
   val context = LocalContext.current
+  val lifecycleOwner = LocalLifecycleOwner.current
   val coroutineScope = rememberCoroutineScope()
   val credentialManager = remember { CredentialManager.create(context) }
 
+  val updateUiState by updateViewModel.uiState.collectAsStateWithLifecycle()
   var currentUser by remember { mutableStateOf(Firebase.auth.currentUser) }
+
+  DisposableEffect(lifecycleOwner) {
+    val observer = LifecycleEventObserver { _, event ->
+      if (event == Lifecycle.Event.ON_RESUME) {
+        updateViewModel.refreshInstalledVersionAndPermission()
+      }
+    }
+    lifecycleOwner.lifecycle.addObserver(observer)
+    onDispose {
+      lifecycleOwner.lifecycle.removeObserver(observer)
+    }
+  }
 
   DisposableEffect(Unit) {
     val authListener = FirebaseAuth.AuthStateListener { auth ->
@@ -76,6 +100,18 @@ fun AppRoot() {
     }
   }
 
+  if (updateUiState.isMandatoryBlocked) {
+    MandatoryUpdateScreen(
+      uiState = updateUiState,
+      onRetryCheck = { updateViewModel.checkForUpdatesManual() },
+      onUpdateNow = { updateViewModel.startDownload(autoInstallWhenReady = true) },
+      onCancelDownload = { updateViewModel.cancelDownload() },
+      onInstallUpdate = { updateViewModel.installVerifiedUpdate() },
+      onOpenInstallPermission = { updateViewModel.openUnknownSourcesSettings() }
+    )
+    return
+  }
+
   if (currentUser == null) {
     AuthScreen(
       onAuthSuccess = {
@@ -88,8 +124,20 @@ fun AppRoot() {
       AppNavigation(
         onSignOut = {
           currentUser = null
-        }
+        },
+        updateViewModel = updateViewModel
       )
     }
+  }
+
+  if (updateUiState.showOptionalPrompt) {
+    OptionalUpdateDialog(
+      uiState = updateUiState,
+      onDismissLater = { updateViewModel.dismissOptionalPrompt() },
+      onUpdateNow = { updateViewModel.startDownload(autoInstallWhenReady = true) },
+      onCancelDownload = { updateViewModel.cancelDownload() },
+      onInstallUpdate = { updateViewModel.installVerifiedUpdate() },
+      onOpenInstallPermission = { updateViewModel.openUnknownSourcesSettings() }
+    )
   }
 }

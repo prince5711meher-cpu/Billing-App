@@ -1,9 +1,11 @@
 package com.example.ui.screens
 
 import android.content.Intent
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,8 +15,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -43,7 +45,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,6 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.domain.MoneyFormatter
 import com.example.data.model.BusinessSettings
 import com.example.data.model.Invoice
@@ -81,8 +83,16 @@ fun InvoicesScreen(
   onEditInvoice: (Invoice) -> Unit = {}
 ) {
   val context = LocalContext.current
-  val invoices by viewModel.invoicesState.collectAsState()
-  val settings by settingsViewModel.settingsState.collectAsState()
+  val invoices by viewModel.invoicesState.collectAsStateWithLifecycle()
+  val settings by settingsViewModel.settingsState.collectAsStateWithLifecycle()
+  val listState = rememberLazyListState()
+  val chipScrollState = rememberScrollState()
+
+  val colorScheme = MaterialTheme.colorScheme
+  val surfaceColor = colorScheme.surface
+  val borderColor = colorScheme.outline
+  val textPrimary = colorScheme.onSurface
+  val textSecondary = colorScheme.onSurfaceVariant
 
   var searchQuery by remember { mutableStateOf("") }
   var filterStatus by remember { mutableStateOf("ALL") }
@@ -94,19 +104,46 @@ fun InvoicesScreen(
   var paymentAmountInput by remember { mutableStateOf("") }
   var paymentMethodInput by remember { mutableStateOf("CASH") }
 
-  // Filter invoices based on search & status
-  val filteredInvoices = invoices.filter { inv ->
-    val matchesSearch = inv.invoiceNumber.contains(searchQuery, ignoreCase = true) ||
-      inv.customerName.contains(searchQuery, ignoreCase = true)
-    val matchesFilter = when (filterStatus) {
-      "PAID" -> inv.status == "PAID"
-      "PARTIAL" -> inv.status == "PARTIALLY_PAID"
-      "UNPAID" -> inv.status == "UNPAID"
-      "QUOTATION" -> inv.documentType == "QUOTATION"
-      "CANCELLED" -> inv.status == "CANCELLED"
-      else -> true
-    }
-    matchesSearch && matchesFilter
+  // Filter & pre-format invoices once when data/query/filter changes (zero formatting work during scroll)
+  val filteredRows = remember(invoices, searchQuery, filterStatus) {
+    val q = searchQuery.trim()
+    invoices.asSequence()
+      .filter { inv ->
+        val matchesSearch = q.isEmpty() ||
+          inv.invoiceNumber.contains(q, ignoreCase = true) ||
+          inv.customerName.contains(q, ignoreCase = true)
+        val matchesFilter = when (filterStatus) {
+          "PAID" -> inv.status == "PAID"
+          "PARTIAL" -> inv.status == "PARTIALLY_PAID"
+          "UNPAID" -> inv.status == "UNPAID"
+          "QUOTATION" -> inv.documentType == "QUOTATION"
+          "CANCELLED" -> inv.status == "CANCELLED"
+          else -> true
+        }
+        matchesSearch && matchesFilter
+      }
+      .map { inv ->
+        InvoiceRowUi(
+          invoice = inv,
+          subtitle = "${inv.customerName} • ${inv.items.size} items",
+          formattedTotal = MoneyFormatter.formatPaise(inv.grandTotalMinor),
+          formattedDue = if (inv.balanceDueMinor > 0L) {
+            "Due: ${MoneyFormatter.formatPaise(inv.balanceDueMinor)}"
+          } else null
+        )
+      }
+      .toList()
+  }
+
+  val filterChips = remember(invoices.size) {
+    listOf(
+      "ALL" to "All (${invoices.size})",
+      "PAID" to "Paid",
+      "PARTIAL" to "Part Due",
+      "UNPAID" to "Unpaid",
+      "QUOTATION" to "Estimates",
+      "CANCELLED" to "Cancelled"
+    )
   }
 
   Column(
@@ -142,19 +179,13 @@ fun InvoicesScreen(
     Spacer(modifier = Modifier.height(10.dp))
 
     // Filter Chips Row
-    LazyRow(
-      modifier = Modifier.fillMaxWidth(),
+    Row(
+      modifier = Modifier
+        .fillMaxWidth()
+        .horizontalScroll(chipScrollState),
       horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-      val filters = listOf(
-        "ALL" to "All (${invoices.size})",
-        "PAID" to "Paid",
-        "PARTIAL" to "Part Due",
-        "UNPAID" to "Unpaid",
-        "QUOTATION" to "Estimates",
-        "CANCELLED" to "Cancelled"
-      )
-      items(filters) { (key, label) ->
+      for ((key, label) in filterChips) {
         FilterChip(
           selected = filterStatus == key,
           onClick = { filterStatus = key },
@@ -170,7 +201,7 @@ fun InvoicesScreen(
     Spacer(modifier = Modifier.height(12.dp))
 
     // List of Invoices
-    if (filteredInvoices.isEmpty()) {
+    if (filteredRows.isEmpty()) {
       Box(
         modifier = Modifier
           .fillMaxWidth()
@@ -179,25 +210,34 @@ fun InvoicesScreen(
       ) {
         Text(
           text = if (searchQuery.isNotBlank()) "No bills matching \"$searchQuery\"" else "No bills in this filter",
-          style = MaterialTheme.typography.bodyMedium.copy(color = TextSecondary)
+          style = MaterialTheme.typography.bodyMedium,
+          color = textSecondary
         )
       }
     } else {
       LazyColumn(
+        state = listState,
         modifier = Modifier.weight(1f),
+        contentPadding = PaddingValues(bottom = 28.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
       ) {
-        items(filteredInvoices) { invoice ->
-          InvoiceListItem(
-            invoice = invoice,
+        items(
+          items = filteredRows,
+          key = { it.invoice.id.ifBlank { it.invoice.invoiceNumber } },
+          contentType = { "invoice_item" }
+        ) { row ->
+          val invoice = row.invoice
+          InvoiceRowCard(
+            row = row,
+            surfaceColor = surfaceColor,
+            borderColor = borderColor,
+            textPrimary = textPrimary,
+            textSecondary = textSecondary,
             onClick = { activeDetailInvoice = invoice },
             onEditClick = if (invoice.status != "CANCELLED") {
               { onEditInvoice(invoice) }
             } else null
           )
-        }
-        item {
-          Spacer(modifier = Modifier.height(30.dp))
         }
       }
     }
@@ -230,9 +270,11 @@ fun InvoicesScreen(
               text = inv.invoiceNumber,
               style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
             )
-            val dateStr = inv.createdAt?.toDate()?.let {
-              SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(it)
-            } ?: "Date: Pending sync"
+            val dateStr = remember(inv.id, inv.createdAt) {
+              inv.createdAt?.toDate()?.let {
+                SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(it)
+              } ?: "Date: Pending sync"
+            }
             Text(text = dateStr, style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary))
           }
           StatusBadge(status = inv.status)

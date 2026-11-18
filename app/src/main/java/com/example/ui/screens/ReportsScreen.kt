@@ -1,10 +1,10 @@
 package com.example.ui.screens
 
-import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,18 +14,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -34,7 +30,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,15 +41,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.domain.MoneyFormatter
-import com.example.data.model.Invoice
-import com.example.ui.theme.BorderLight
+import com.example.data.model.BusinessSettings
 import com.example.ui.theme.CashColor
 import com.example.ui.theme.PrimaryBlue
-import com.example.ui.theme.SuccessGreen
 import com.example.ui.theme.SurfaceLight
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
 import com.example.ui.theme.UdharColor
 import com.example.ui.theme.UpiColor
 import com.example.ui.theme.WarningOrange
@@ -62,6 +55,11 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
+private val ReportShape16 = RoundedCornerShape(16.dp)
+private val ReportShape14 = RoundedCornerShape(14.dp)
+private val ReportShape12 = RoundedCornerShape(12.dp)
+private val ReportShape10 = RoundedCornerShape(10.dp)
+
 @Composable
 fun ReportsScreen(
   billingViewModel: BillingViewModel,
@@ -69,259 +67,338 @@ fun ReportsScreen(
   onNavigateToSettings: () -> Unit = {}
 ) {
   val context = LocalContext.current
-  val invoices by billingViewModel.invoicesState.collectAsState()
-  val settings by settingsViewModel.settingsState.collectAsState()
+  val invoices by billingViewModel.invoicesState.collectAsStateWithLifecycle()
+  val settings by settingsViewModel.settingsState.collectAsStateWithLifecycle()
+  val scrollState = rememberScrollState()
+  val chipScrollState = rememberScrollState()
+
+  val colorScheme = MaterialTheme.colorScheme
+  val surfaceColor = colorScheme.surface
+  val borderColor = colorScheme.outline
+  val textPrimary = colorScheme.onSurface
+  val textSecondary = colorScheme.onSurfaceVariant
 
   var selectedPeriod by remember { mutableStateOf("TODAY") }
 
-  // Filter invoices by selected date period
-  val now = Calendar.getInstance()
-  val filteredInvoices = invoices.filter { inv ->
-    if (inv.status == "CANCELLED" || inv.createdAt == null) return@filter false
-    val invCal = Calendar.getInstance().apply { time = inv.createdAt.toDate() }
-    when (selectedPeriod) {
-      "TODAY" -> {
-        invCal.get(Calendar.YEAR) == now.get(Calendar.YEAR) &&
-          invCal.get(Calendar.DAY_OF_YEAR) == now.get(Calendar.DAY_OF_YEAR)
+  val reportMetrics = remember(invoices, selectedPeriod) {
+    val now = Calendar.getInstance()
+    val weekAgo = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -7) }
+    val invCal = Calendar.getInstance()
+
+    var gross = 0L
+    var count = 0
+    var cash = 0L
+    var upi = 0L
+    var udhar = 0L
+    var totalReceivablesSum = 0L
+    val productMap = HashMap<String, Pair<Double, Long>>()
+
+    for (inv in invoices) {
+      if (inv.status == "CANCELLED") continue
+      totalReceivablesSum += inv.balanceDueMinor
+
+      val created = inv.createdAt ?: continue
+      invCal.time = created.toDate()
+      val inPeriod = when (selectedPeriod) {
+        "TODAY" -> {
+          invCal.get(Calendar.YEAR) == now.get(Calendar.YEAR) &&
+            invCal.get(Calendar.DAY_OF_YEAR) == now.get(Calendar.DAY_OF_YEAR)
+        }
+        "WEEK" -> invCal.after(weekAgo)
+        "MONTH" -> {
+          invCal.get(Calendar.YEAR) == now.get(Calendar.YEAR) &&
+            invCal.get(Calendar.MONTH) == now.get(Calendar.MONTH)
+        }
+        else -> true
       }
-      "WEEK" -> {
-        val weekAgo = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -7) }
-        invCal.after(weekAgo)
+
+      if (inPeriod) {
+        count++
+        gross += inv.grandTotalMinor
+        when (inv.paymentMethod) {
+          "CASH" -> cash += inv.amountPaidMinor
+          "UPI" -> upi += inv.amountPaidMinor
+        }
+        udhar += inv.balanceDueMinor
+        for (item in inv.items) {
+          val current = productMap[item.description]
+          if (current == null) {
+            productMap[item.description] = Pair(item.quantity, item.lineTotalMinor)
+          } else {
+            productMap[item.description] = Pair(
+              current.first + item.quantity,
+              current.second + item.lineTotalMinor
+            )
+          }
+        }
       }
-      "MONTH" -> {
-        invCal.get(Calendar.YEAR) == now.get(Calendar.YEAR) &&
-          invCal.get(Calendar.MONTH) == now.get(Calendar.MONTH)
-      }
-      else -> true // ALL
     }
+
+    val avg = if (count > 0) gross / count else 0L
+    val topProducts = productMap.entries
+      .sortedByDescending { it.value.second }
+      .take(8)
+      .mapIndexed { idx, entry ->
+        TopProductRowUi(
+          title = "${idx + 1}. ${entry.key}",
+          qtyText = "Qty Sold: ${entry.value.first}",
+          formattedTotal = MoneyFormatter.formatPaise(entry.value.second)
+        )
+      }
+
+    ReportsMetricsSummary(
+      totalGrossSales = gross,
+      totalInvoicesCount = count,
+      avgBillValue = avg,
+      cashCollections = cash,
+      upiCollections = upi,
+      udharCollections = udhar,
+      totalReceivables = totalReceivablesSum,
+      grossSalesFormatted = MoneyFormatter.formatPaise(gross),
+      avgBillFormatted = MoneyFormatter.formatPaise(avg),
+      receivablesFormatted = MoneyFormatter.formatPaise(totalReceivablesSum),
+      cashFormatted = MoneyFormatter.formatPaise(cash),
+      upiFormatted = MoneyFormatter.formatPaise(upi),
+      udharFormatted = MoneyFormatter.formatPaise(udhar),
+      topProducts = topProducts
+    )
   }
 
-  val totalGrossSales = filteredInvoices.sumOf { it.grandTotalMinor }
-  val totalInvoicesCount = filteredInvoices.size
-  val avgBillValue = if (totalInvoicesCount > 0) totalGrossSales / totalInvoicesCount else 0L
-
-  val cashCollections = filteredInvoices.filter { it.paymentMethod == "CASH" }.sumOf { it.amountPaidMinor }
-  val upiCollections = filteredInvoices.filter { it.paymentMethod == "UPI" }.sumOf { it.amountPaidMinor }
-  val udharCollections = filteredInvoices.sumOf { it.balanceDueMinor }
-  val totalReceivables = invoices.filter { it.status != "CANCELLED" }.sumOf { it.balanceDueMinor }
-
-  // Product description summary
-  val productMap = mutableMapOf<String, Pair<Double, Long>>()
-  filteredInvoices.forEach { inv ->
-    inv.items.forEach { item ->
-      val current = productMap[item.description] ?: Pair(0.0, 0L)
-      productMap[item.description] = Pair(
-        current.first + item.quantity,
-        current.second + item.lineTotalMinor
-      )
-    }
+  val periods = remember {
+    listOf(
+      "TODAY" to "Today",
+      "WEEK" to "This Week",
+      "MONTH" to "This Month",
+      "ALL" to "All Time"
+    )
   }
-  val topProducts = productMap.toList().sortedByDescending { it.second.second }.take(8)
 
-  LazyColumn(
+  Column(
     modifier = Modifier
       .fillMaxSize()
-      .padding(horizontal = 16.dp, vertical = 8.dp),
+      .verticalScroll(scrollState)
+      .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 32.dp),
     verticalArrangement = Arrangement.spacedBy(14.dp)
   ) {
-    item {
-      Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-      ) {
-        Column {
-          Text(
-            text = "Business Reports",
-            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
-          )
-          Text(
-            text = "Sales, Collections & Item Summaries",
-            style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
-          )
-        }
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.SpaceBetween,
+      verticalAlignment = Alignment.CenterVertically
+    ) {
+      Column {
+        Text(
+          text = "Business Reports",
+          style = MaterialTheme.typography.titleLarge,
+          fontWeight = FontWeight.Bold,
+          color = textPrimary
+        )
+        Text(
+          text = "Sales, Collections & Item Summaries",
+          style = MaterialTheme.typography.bodySmall,
+          color = textSecondary
+        )
+      }
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-          IconButton(onClick = onNavigateToSettings) {
-            Icon(Icons.Default.Settings, contentDescription = "Settings", tint = TextSecondary)
-          }
-          Spacer(modifier = Modifier.width(4.dp))
-          Button(
-            onClick = {
-              val reportSummary = buildReportShareText(
-                period = selectedPeriod,
-                sales = totalGrossSales,
-                billsCount = totalInvoicesCount,
-                cash = cashCollections,
-                upi = upiCollections,
-                udhar = udharCollections,
-                due = totalReceivables,
-                settings = settings
-              )
-              val sendIntent = Intent().apply {
-                action = Intent.ACTION_SEND
-                putExtra(Intent.EXTRA_TEXT, reportSummary)
-                type = "text/plain"
-              }
-              context.startActivity(Intent.createChooser(sendIntent, "Share Sales Report"))
-            },
-            shape = RoundedCornerShape(10.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)
-          ) {
-            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-            Spacer(modifier = Modifier.width(6.dp))
-            Text("Share Report", fontSize = 12.sp)
-          }
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onNavigateToSettings) {
+          Icon(Icons.Default.Settings, contentDescription = "Settings", tint = textSecondary)
+        }
+        Spacer(modifier = Modifier.width(4.dp))
+        Button(
+          onClick = {
+            val reportSummary = buildReportShareText(
+              period = selectedPeriod,
+              sales = reportMetrics.totalGrossSales,
+              billsCount = reportMetrics.totalInvoicesCount,
+              cash = reportMetrics.cashCollections,
+              upi = reportMetrics.upiCollections,
+              udhar = reportMetrics.udharCollections,
+              due = reportMetrics.totalReceivables,
+              settings = settings
+            )
+            val sendIntent = Intent().apply {
+              action = Intent.ACTION_SEND
+              putExtra(Intent.EXTRA_TEXT, reportSummary)
+              type = "text/plain"
+            }
+            context.startActivity(Intent.createChooser(sendIntent, "Share Sales Report"))
+          },
+          shape = ReportShape10,
+          colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)
+        ) {
+          Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+          Spacer(modifier = Modifier.width(6.dp))
+          Text("Share Report", fontSize = 12.sp)
         }
       }
     }
 
     // Period Filter Chips
-    item {
-      LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        val periods = listOf(
-          "TODAY" to "Today",
-          "WEEK" to "This Week",
-          "MONTH" to "This Month",
-          "ALL" to "All Time"
-        )
-        items(periods) { (key, label) ->
-          FilterChip(
-            selected = selectedPeriod == key,
-            onClick = { selectedPeriod = key },
-            label = { Text(label, fontSize = 12.sp) },
-            colors = FilterChipDefaults.filterChipColors(
-              selectedContainerColor = PrimaryBlue,
-              selectedLabelColor = SurfaceLight
-            )
+    Row(
+      modifier = Modifier
+        .fillMaxWidth()
+        .horizontalScroll(chipScrollState),
+      horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+      for ((key, label) in periods) {
+        FilterChip(
+          selected = selectedPeriod == key,
+          onClick = { selectedPeriod = key },
+          label = { Text(label, fontSize = 12.sp) },
+          colors = FilterChipDefaults.filterChipColors(
+            selectedContainerColor = PrimaryBlue,
+            selectedLabelColor = SurfaceLight
           )
-        }
+        )
       }
     }
 
     // Main Sales KPI Card
-    item {
-      Card(
+    Column(
+      modifier = Modifier
+        .fillMaxWidth()
+        .background(surfaceColor, ReportShape16)
+        .border(1.dp, borderColor, ReportShape16)
+        .padding(18.dp)
+    ) {
+      Text("Gross Total Sales ($selectedPeriod)", fontSize = 12.sp, color = textSecondary)
+      Text(
+        text = reportMetrics.grossSalesFormatted,
+        style = MaterialTheme.typography.headlineMedium,
+        fontWeight = FontWeight.Bold,
+        color = PrimaryBlue
+      )
+
+      Spacer(modifier = Modifier.height(14.dp))
+      HorizontalDivider(color = borderColor)
+      Spacer(modifier = Modifier.height(14.dp))
+
+      Row(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = androidx.compose.foundation.BorderStroke(1.dp, BorderLight),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        horizontalArrangement = Arrangement.SpaceBetween
       ) {
-        Column(modifier = Modifier.padding(18.dp)) {
-          Text("Gross Total Sales ($selectedPeriod)", fontSize = 12.sp, color = TextSecondary)
-          Text(
-            text = MoneyFormatter.formatPaise(totalGrossSales),
-            style = MaterialTheme.typography.headlineMedium.copy(
-              fontWeight = FontWeight.Bold,
-              color = PrimaryBlue
-            )
-          )
-
-          Spacer(modifier = Modifier.height(14.dp))
-          HorizontalDivider(color = BorderLight)
-          Spacer(modifier = Modifier.height(14.dp))
-
-          Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-          ) {
-            Column {
-              Text("Total Bills", fontSize = 11.sp, color = TextSecondary)
-              Text("$totalInvoicesCount", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-              Text("Avg. Bill Value", fontSize = 11.sp, color = TextSecondary)
-              Text(MoneyFormatter.formatPaise(avgBillValue), fontWeight = FontWeight.Bold, fontSize = 15.sp)
-            }
-            Column(horizontalAlignment = Alignment.End) {
-              Text("Customer Receivables", fontSize = 11.sp, color = WarningOrange)
-              Text(MoneyFormatter.formatPaise(totalReceivables), fontWeight = FontWeight.Bold, color = WarningOrange, fontSize = 15.sp)
-            }
-          }
+        Column {
+          Text("Total Bills", fontSize = 11.sp, color = textSecondary)
+          Text("${reportMetrics.totalInvoicesCount}", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = textPrimary)
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+          Text("Avg. Bill Value", fontSize = 11.sp, color = textSecondary)
+          Text(reportMetrics.avgBillFormatted, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = textPrimary)
+        }
+        Column(horizontalAlignment = Alignment.End) {
+          Text("Customer Receivables", fontSize = 11.sp, color = WarningOrange)
+          Text(reportMetrics.receivablesFormatted, fontWeight = FontWeight.Bold, color = WarningOrange, fontSize = 15.sp)
         }
       }
     }
 
     // Collections Breakdown
-    item {
-      Text("Collections by Payment Mode", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
+    Column {
+      Text(
+        text = "Collections by Payment Mode",
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.Bold,
+        color = textPrimary
+      )
       Spacer(modifier = Modifier.height(8.dp))
-      Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = androidx.compose.foundation.BorderStroke(1.dp, BorderLight),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+      Column(
+        modifier = Modifier
+          .fillMaxWidth()
+          .background(surfaceColor, ReportShape14)
+          .border(1.dp, borderColor, ReportShape14)
+          .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
       ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-          Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("Cash Collections (नकद)", color = TextSecondary)
-            Text(MoneyFormatter.formatPaise(cashCollections), fontWeight = FontWeight.Bold, color = CashColor)
-          }
-          Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("UPI / QR Collections (ऑनलाइन)", color = TextSecondary)
-            Text(MoneyFormatter.formatPaise(upiCollections), fontWeight = FontWeight.Bold, color = UpiColor)
-          }
-          Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("Udhar / Credit Recorded (उधार)", color = TextSecondary)
-            Text(MoneyFormatter.formatPaise(udharCollections), fontWeight = FontWeight.Bold, color = UdharColor)
-          }
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+          Text("Cash Collections (नकद)", color = textSecondary)
+          Text(reportMetrics.cashFormatted, fontWeight = FontWeight.Bold, color = CashColor)
+        }
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+          Text("UPI / QR Collections (ऑनलाइन)", color = textSecondary)
+          Text(reportMetrics.upiFormatted, fontWeight = FontWeight.Bold, color = UpiColor)
+        }
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+          Text("Udhar / Credit Recorded (उधार)", color = textSecondary)
+          Text(reportMetrics.udharFormatted, fontWeight = FontWeight.Bold, color = UdharColor)
         }
       }
     }
 
     // Top Selling Items Breakdown
-    item {
-      Text("Top Selling Items ($selectedPeriod)", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
+    Column {
+      Text(
+        text = "Top Selling Items ($selectedPeriod)",
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.Bold,
+        color = textPrimary
+      )
       Spacer(modifier = Modifier.height(8.dp))
-      if (topProducts.isEmpty()) {
-        Card(
-          modifier = Modifier.fillMaxWidth(),
-          shape = RoundedCornerShape(12.dp),
-          colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-          border = androidx.compose.foundation.BorderStroke(1.dp, BorderLight)
-        ) {
-          Text(
-            text = "No item sales in this period",
-            color = TextSecondary,
-            modifier = Modifier.padding(16.dp),
-            fontSize = 13.sp
-          )
-        }
+      if (reportMetrics.topProducts.isEmpty()) {
+        Text(
+          text = "No item sales in this period",
+          color = textSecondary,
+          modifier = Modifier
+            .fillMaxWidth()
+            .background(surfaceColor, ReportShape12)
+            .border(1.dp, borderColor, ReportShape12)
+            .padding(16.dp),
+          fontSize = 13.sp
+        )
       } else {
-        Card(
-          modifier = Modifier.fillMaxWidth(),
-          shape = RoundedCornerShape(14.dp),
-          colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-          border = androidx.compose.foundation.BorderStroke(1.dp, BorderLight),
-          elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        Column(
+          modifier = Modifier
+            .fillMaxWidth()
+            .background(surfaceColor, ReportShape14)
+            .border(1.dp, borderColor, ReportShape14)
+            .padding(16.dp),
+          verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-          Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            topProducts.forEachIndexed { i, (desc, data) ->
-              Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-              ) {
-                Column(modifier = Modifier.weight(1f)) {
-                  Text("${i + 1}. $desc", fontWeight = FontWeight.Medium, fontSize = 13.sp)
-                  Text("Qty Sold: ${data.first}", fontSize = 11.sp, color = TextSecondary)
-                }
-                Text(MoneyFormatter.formatPaise(data.second), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+          reportMetrics.topProducts.forEachIndexed { i, product ->
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.SpaceBetween,
+              verticalAlignment = Alignment.CenterVertically
+            ) {
+              Column(modifier = Modifier.weight(1f)) {
+                Text(product.title, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = textPrimary)
+                Text(product.qtyText, fontSize = 11.sp, color = textSecondary)
               }
-              if (i < topProducts.size - 1) HorizontalDivider(color = BorderLight.copy(alpha = 0.5f))
+              Text(product.formattedTotal, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = textPrimary)
+            }
+            if (i < reportMetrics.topProducts.lastIndex) {
+              HorizontalDivider(color = borderColor.copy(alpha = 0.5f))
             }
           }
         }
       }
     }
-
-    item {
-      Spacer(modifier = Modifier.height(30.dp))
-    }
   }
 }
+
+@Immutable
+private data class TopProductRowUi(
+  val title: String,
+  val qtyText: String,
+  val formattedTotal: String
+)
+
+@Immutable
+private data class ReportsMetricsSummary(
+  val totalGrossSales: Long,
+  val totalInvoicesCount: Int,
+  val avgBillValue: Long,
+  val cashCollections: Long,
+  val upiCollections: Long,
+  val udharCollections: Long,
+  val totalReceivables: Long,
+  val grossSalesFormatted: String,
+  val avgBillFormatted: String,
+  val receivablesFormatted: String,
+  val cashFormatted: String,
+  val upiFormatted: String,
+  val udharFormatted: String,
+  val topProducts: List<TopProductRowUi>
+)
 
 fun buildReportShareText(
   period: String,
@@ -331,7 +408,7 @@ fun buildReportShareText(
   upi: Long,
   udhar: Long,
   due: Long,
-  settings: com.example.data.model.BusinessSettings
+  settings: BusinessSettings
 ): String {
   return """
     📊 *${settings.businessName} — Sales Summary*

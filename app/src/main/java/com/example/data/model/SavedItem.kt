@@ -1,6 +1,7 @@
 package com.example.data.model
 
 import androidx.annotation.Keep
+import androidx.compose.runtime.Immutable
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.IgnoreExtraProperties
@@ -8,6 +9,7 @@ import com.google.firebase.firestore.ServerTimestamp
 import java.security.MessageDigest
 
 @Keep
+@Immutable
 @IgnoreExtraProperties
 data class SavedItem(
   @DocumentId val id: String = "",

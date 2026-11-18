@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import android.app.Application
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.domain.InvoiceCalculationResult
@@ -20,6 +21,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+@Immutable
 data class NewBillDraft(
   val editingInvoiceId: String? = null,
   val editingInvoiceNumber: String? = null,
@@ -34,21 +36,19 @@ data class NewBillDraft(
   val discountValue: Double = 0.0,
   val paymentMethod: String = "CASH",       // CASH, UPI, UDHAR
   val amountPaidMinor: Long = 0L,
-  val notes: String = ""
+  val notes: String = "",
+  val calculation: InvoiceCalculationResult = InvoiceEngine.calculateInvoice(
+    items = items,
+    discountType = discountType,
+    discountValue = discountValue,
+    billingMode = billingMode,
+    placeOfSupply = placeOfSupply,
+    sellerStateCode = "21-Odisha",
+    amountPaidMinor = amountPaidMinor
+  )
 ) {
   val isEditing: Boolean
     get() = editingInvoiceId != null
-
-  val calculation: InvoiceCalculationResult
-    get() = InvoiceEngine.calculateInvoice(
-      items = items,
-      discountType = discountType,
-      discountValue = discountValue,
-      billingMode = billingMode,
-      placeOfSupply = placeOfSupply,
-      sellerStateCode = "21-Odisha",
-      amountPaidMinor = amountPaidMinor
-    )
 }
 
 class BillingViewModel(application: Application) : AndroidViewModel(application) {
@@ -132,8 +132,23 @@ class BillingViewModel(application: Application) : AndroidViewModel(application)
     )
   }
 
+  private inline fun updateDraft(transform: (NewBillDraft) -> NewBillDraft) {
+    val updated = transform(_draft.value)
+    _draft.value = updated.copy(
+      calculation = InvoiceEngine.calculateInvoice(
+        items = updated.items,
+        discountType = updated.discountType,
+        discountValue = updated.discountValue,
+        billingMode = updated.billingMode,
+        placeOfSupply = updated.placeOfSupply,
+        sellerStateCode = "21-Odisha",
+        amountPaidMinor = updated.amountPaidMinor
+      )
+    )
+  }
+
   fun setDocumentType(type: String) {
-    _draft.value = _draft.value.copy(documentType = type)
+    updateDraft { it.copy(documentType = type) }
   }
 
   fun setBillingMode(mode: String) {
@@ -160,19 +175,21 @@ class BillingViewModel(application: Application) : AndroidViewModel(application)
       discountValue = current.discountValue,
       billingMode = mode
     )
-    _draft.value = current.copy(
-      billingMode = mode,
-      items = recalculatedItems,
-      amountPaidMinor = resolveUpdatedAmountPaid(current, oldGrandTotal, calc.grandTotalMinor)
-    )
+    updateDraft {
+      it.copy(
+        billingMode = mode,
+        items = recalculatedItems,
+        amountPaidMinor = resolveUpdatedAmountPaid(current, oldGrandTotal, calc.grandTotalMinor)
+      )
+    }
   }
 
   fun setCustomer(customer: Customer?) {
-    _draft.value = _draft.value.copy(customer = customer)
+    updateDraft { it.copy(customer = customer) }
   }
 
   fun setWalkInDetails(name: String, phone: String) {
-    _draft.value = _draft.value.copy(walkInName = name, walkInPhone = phone)
+    updateDraft { it.copy(walkInName = name, walkInPhone = phone) }
   }
 
   fun addItem(
@@ -209,10 +226,12 @@ class BillingViewModel(application: Application) : AndroidViewModel(application)
       discountValue = current.discountValue,
       billingMode = current.billingMode
     )
-    _draft.value = current.copy(
-      items = updatedItems,
-      amountPaidMinor = resolveUpdatedAmountPaid(current, oldGrandTotal, calc.grandTotalMinor)
-    )
+    updateDraft {
+      it.copy(
+        items = updatedItems,
+        amountPaidMinor = resolveUpdatedAmountPaid(current, oldGrandTotal, calc.grandTotalMinor)
+      )
+    }
   }
 
   fun updateItem(
@@ -250,10 +269,12 @@ class BillingViewModel(application: Application) : AndroidViewModel(application)
       discountValue = current.discountValue,
       billingMode = current.billingMode
     )
-    _draft.value = current.copy(
-      items = updatedItems,
-      amountPaidMinor = resolveUpdatedAmountPaid(current, oldGrandTotal, calc.grandTotalMinor)
-    )
+    updateDraft {
+      it.copy(
+        items = updatedItems,
+        amountPaidMinor = resolveUpdatedAmountPaid(current, oldGrandTotal, calc.grandTotalMinor)
+      )
+    }
   }
 
   fun removeItem(index: Int) {
@@ -267,10 +288,12 @@ class BillingViewModel(application: Application) : AndroidViewModel(application)
         discountValue = current.discountValue,
         billingMode = current.billingMode
       )
-      _draft.value = current.copy(
-        items = updated,
-        amountPaidMinor = resolveUpdatedAmountPaid(current, oldGrandTotal, calc.grandTotalMinor)
-      )
+      updateDraft {
+        it.copy(
+          items = updated,
+          amountPaidMinor = resolveUpdatedAmountPaid(current, oldGrandTotal, calc.grandTotalMinor)
+        )
+      }
     }
   }
 
@@ -283,11 +306,13 @@ class BillingViewModel(application: Application) : AndroidViewModel(application)
       discountValue = value,
       billingMode = current.billingMode
     )
-    _draft.value = current.copy(
-      discountType = type,
-      discountValue = value,
-      amountPaidMinor = resolveUpdatedAmountPaid(current, oldGrandTotal, calc.grandTotalMinor)
-    )
+    updateDraft {
+      it.copy(
+        discountType = type,
+        discountValue = value,
+        amountPaidMinor = resolveUpdatedAmountPaid(current, oldGrandTotal, calc.grandTotalMinor)
+      )
+    }
   }
 
   fun setPaymentMethod(method: String) {
@@ -298,15 +323,15 @@ class BillingViewModel(application: Application) : AndroidViewModel(application)
       "CASH", "UPI" -> if (current.amountPaidMinor == 0L) calc.grandTotalMinor else current.amountPaidMinor
       else -> current.amountPaidMinor
     }
-    _draft.value = current.copy(paymentMethod = method, amountPaidMinor = newPaid)
+    updateDraft { it.copy(paymentMethod = method, amountPaidMinor = newPaid) }
   }
 
   fun setAmountPaid(paise: Long) {
-    _draft.value = _draft.value.copy(amountPaidMinor = paise)
+    updateDraft { it.copy(amountPaidMinor = paise) }
   }
 
   fun setNotes(notes: String) {
-    _draft.value = _draft.value.copy(notes = notes)
+    updateDraft { it.copy(notes = notes) }
   }
 
   fun resetDraft() {

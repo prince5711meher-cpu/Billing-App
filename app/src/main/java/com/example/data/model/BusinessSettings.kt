@@ -1,10 +1,12 @@
 package com.example.data.model
 
+import androidx.compose.runtime.Immutable
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.IgnoreExtraProperties
 import com.google.firebase.firestore.ServerTimestamp
 
+@Immutable
 @IgnoreExtraProperties
 data class BusinessSettings(
   @DocumentId val id: String = "business",

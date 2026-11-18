@@ -3,13 +3,10 @@ package com.example.ui.navigation
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -29,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,6 +49,7 @@ import com.example.ui.screens.SettingsViewModel
 import com.example.ui.theme.PrimaryBlue
 import com.example.ui.theme.SurfaceLight
 import com.example.ui.theme.TextSecondary
+import com.example.ui.update.UpdateViewModel
 
 enum class NavDestination(val label: String, val icon: ImageVector) {
   HOME("Home", Icons.Default.Dashboard),
@@ -74,16 +73,20 @@ fun AppNavigation(
   onSignOut: () -> Unit,
   billingViewModel: BillingViewModel = viewModel(),
   settingsViewModel: SettingsViewModel = viewModel(),
-  itemsViewModel: ItemsViewModel = viewModel()
+  itemsViewModel: ItemsViewModel = viewModel(),
+  updateViewModel: UpdateViewModel = viewModel()
 ) {
+  val stateHolder = rememberSaveableStateHolder()
   var currentDestination by remember { mutableStateOf(NavDestination.HOME) }
   var editReturnDestination by remember { mutableStateOf(NavDestination.INVOICES) }
   var selectedInvoiceForDetail by remember { mutableStateOf<Invoice?>(null) }
 
-  val startEditing: (Invoice, NavDestination) -> Unit = { invoice, origin ->
-    editReturnDestination = origin
-    billingViewModel.startEditingInvoice(invoice)
-    currentDestination = NavDestination.NEW_BILL
+  val startEditing: (Invoice, NavDestination) -> Unit = remember(billingViewModel) {
+    { invoice, origin ->
+      editReturnDestination = origin
+      billingViewModel.startEditingInvoice(invoice)
+      currentDestination = NavDestination.NEW_BILL
+    }
   }
 
   // Handle system back navigation to return to Home
@@ -96,9 +99,7 @@ fun AppNavigation(
   Scaffold(
     bottomBar = {
       NavigationBar(
-        modifier = Modifier
-          .fillMaxWidth()
-          .windowInsetsPadding(WindowInsets.navigationBars),
+        modifier = Modifier.fillMaxWidth(),
         containerColor = MaterialTheme.colorScheme.surface,
         tonalElevation = 4.dp
       ) {
@@ -157,80 +158,83 @@ fun AppNavigation(
         .fillMaxSize()
         .padding(paddingValues)
     ) {
-      when (currentDestination) {
-        NavDestination.HOME -> {
-          HomeScreen(
-            billingViewModel = billingViewModel,
-            settingsViewModel = settingsViewModel,
-            onNavigateToNewBill = { currentDestination = NavDestination.NEW_BILL },
-            onNavigateToInvoices = { currentDestination = NavDestination.INVOICES },
-            onNavigateToReports = { currentDestination = NavDestination.REPORTS },
-            onNavigateToSettings = { currentDestination = NavDestination.SETTINGS },
-            onSelectInvoice = { invoice ->
-              selectedInvoiceForDetail = invoice
-              currentDestination = NavDestination.INVOICES
-            },
-            onEditInvoice = { invoice ->
-              startEditing(invoice, NavDestination.HOME)
-            }
-          )
-        }
+      stateHolder.SaveableStateProvider(currentDestination.name) {
+        when (currentDestination) {
+          NavDestination.HOME -> {
+            HomeScreen(
+              billingViewModel = billingViewModel,
+              settingsViewModel = settingsViewModel,
+              onNavigateToNewBill = { currentDestination = NavDestination.NEW_BILL },
+              onNavigateToInvoices = { currentDestination = NavDestination.INVOICES },
+              onNavigateToReports = { currentDestination = NavDestination.REPORTS },
+              onNavigateToSettings = { currentDestination = NavDestination.SETTINGS },
+              onSelectInvoice = { invoice ->
+                selectedInvoiceForDetail = invoice
+                currentDestination = NavDestination.INVOICES
+              },
+              onEditInvoice = { invoice ->
+                startEditing(invoice, NavDestination.HOME)
+              }
+            )
+          }
 
-        NavDestination.INVOICES -> {
-          InvoicesScreen(
-            viewModel = billingViewModel,
-            settingsViewModel = settingsViewModel,
-            selectedInvoice = selectedInvoiceForDetail,
-            onClearSelectedInvoice = { selectedInvoiceForDetail = null },
-            onEditInvoice = { invoice ->
-              startEditing(invoice, NavDestination.INVOICES)
-            }
-          )
-        }
+          NavDestination.INVOICES -> {
+            InvoicesScreen(
+              viewModel = billingViewModel,
+              settingsViewModel = settingsViewModel,
+              selectedInvoice = selectedInvoiceForDetail,
+              onClearSelectedInvoice = { selectedInvoiceForDetail = null },
+              onEditInvoice = { invoice ->
+                startEditing(invoice, NavDestination.INVOICES)
+              }
+            )
+          }
 
-        NavDestination.NEW_BILL -> {
-          NewBillScreen(
-            viewModel = billingViewModel,
-            settingsViewModel = settingsViewModel,
-            itemsViewModel = itemsViewModel,
-            onBillSaved = {
-              // Keep user on NewBillScreen for WhatsApp share or creating another bill
-            },
-            onCancelEdit = {
-              currentDestination = editReturnDestination
-            }
-          )
-        }
+          NavDestination.NEW_BILL -> {
+            NewBillScreen(
+              viewModel = billingViewModel,
+              settingsViewModel = settingsViewModel,
+              itemsViewModel = itemsViewModel,
+              onBillSaved = {
+                // Keep user on NewBillScreen for WhatsApp share or creating another bill
+              },
+              onCancelEdit = {
+                currentDestination = editReturnDestination
+              }
+            )
+          }
 
-        NavDestination.ITEMS -> {
-          ItemsScreen(
-            itemsViewModel = itemsViewModel,
-            onAddToBill = { savedItem ->
-              billingViewModel.addItem(
-                description = savedItem.name,
-                quantity = 1.0,
-                unitLabel = "pcs",
-                rateMinor = savedItem.rateMinor
-              )
-            },
-            onNavigateToNewBill = { currentDestination = NavDestination.NEW_BILL },
-            onNavigateToSettings = { currentDestination = NavDestination.SETTINGS }
-          )
-        }
+          NavDestination.ITEMS -> {
+            ItemsScreen(
+              itemsViewModel = itemsViewModel,
+              onAddToBill = { savedItem ->
+                billingViewModel.addItem(
+                  description = savedItem.name,
+                  quantity = 1.0,
+                  unitLabel = "pcs",
+                  rateMinor = savedItem.rateMinor
+                )
+              },
+              onNavigateToNewBill = { currentDestination = NavDestination.NEW_BILL },
+              onNavigateToSettings = { currentDestination = NavDestination.SETTINGS }
+            )
+          }
 
-        NavDestination.REPORTS -> {
-          ReportsScreen(
-            billingViewModel = billingViewModel,
-            settingsViewModel = settingsViewModel,
-            onNavigateToSettings = { currentDestination = NavDestination.SETTINGS }
-          )
-        }
+          NavDestination.REPORTS -> {
+            ReportsScreen(
+              billingViewModel = billingViewModel,
+              settingsViewModel = settingsViewModel,
+              onNavigateToSettings = { currentDestination = NavDestination.SETTINGS }
+            )
+          }
 
-        NavDestination.SETTINGS -> {
-          SettingsScreen(
-            viewModel = settingsViewModel,
-            onSignOut = onSignOut
-          )
+          NavDestination.SETTINGS -> {
+            SettingsScreen(
+              viewModel = settingsViewModel,
+              updateViewModel = updateViewModel,
+              onSignOut = onSignOut
+            )
+          }
         }
       }
     }
