@@ -68,7 +68,7 @@ fun AppRoot(
   DisposableEffect(lifecycleOwner) {
     val observer = LifecycleEventObserver { _, event ->
       if (event == Lifecycle.Event.ON_RESUME) {
-        updateViewModel.refreshInstalledVersionAndPermission()
+        updateViewModel.onAppResumed()
       }
     }
     lifecycleOwner.lifecycle.addObserver(observer)

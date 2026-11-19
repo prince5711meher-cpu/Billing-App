@@ -7,14 +7,17 @@ import com.example.update.ApkDownloader
 import com.example.update.ApkInstaller
 import com.example.update.DownloadState
 import com.example.update.UpdateCheckResult
+import com.example.update.UpdateConfig
 import com.example.update.UpdateManifest
 import com.example.update.UpdatePreferences
 import com.example.update.UpdateRepository
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 data class AppUpdateUiState(
@@ -52,6 +55,7 @@ class UpdateViewModel(application: Application) : AndroidViewModel(application) 
   init {
     downloader.cleanupObsoleteApks(_uiState.value.installedVersionCode)
     runAutoCheckOnLaunch()
+    startPeriodicAutoCheckLoop()
   }
 
   private fun buildInitialState(): AppUpdateUiState {
@@ -74,6 +78,32 @@ class UpdateViewModel(application: Application) : AndroidViewModel(application) 
     performCheck(forceNetwork = true, isSilentBackground = false)
   }
 
+  fun onAppResumed() {
+    refreshInstalledVersionAndPermission()
+    if (hasLaunchedAutoCheck && preferences.isAutoCheckDue()) {
+      performCheck(forceNetwork = false, isSilentBackground = true)
+    }
+  }
+
+  private fun startPeriodicAutoCheckLoop() {
+    viewModelScope.launch {
+      while (isActive) {
+        val lastChecked = preferences.getLastCheckedAtMillis()
+        val now = System.currentTimeMillis()
+        val elapsed = if (lastChecked > 0L) (now - lastChecked).coerceAtLeast(0L) else 0L
+        val waitMillis = if (lastChecked <= 0L) {
+          UpdateConfig.AUTO_CHECK_INTERVAL_MILLIS
+        } else {
+          (UpdateConfig.AUTO_CHECK_INTERVAL_MILLIS - elapsed).coerceAtLeast(60_000L)
+        }
+        delay(waitMillis)
+        if (preferences.isAutoCheckDue()) {
+          performCheck(forceNetwork = false, isSilentBackground = true)
+        }
+      }
+    }
+  }
+
   private fun performCheck(forceNetwork: Boolean, isSilentBackground: Boolean) {
     if (_uiState.value.isChecking) return
     viewModelScope.launch {
@@ -90,7 +120,11 @@ class UpdateViewModel(application: Application) : AndroidViewModel(application) 
         val manifest = result.manifest
         val existingVerified = downloader.findVerifiedExistingApk(manifest)
         if (existingVerified != null) {
-          nextDownloadState = DownloadState.VerifiedReadyToInstall(manifest, existingVerified)
+          nextDownloadState = DownloadState.VerifiedReadyToInstall(
+            manifest = manifest,
+            apkFile = existingVerified,
+            totalBytes = existingVerified.length()
+          )
         } else if (nextDownloadState is DownloadState.VerifiedReadyToInstall &&
           nextDownloadState.manifest.versionCode != manifest.versionCode
         ) {
@@ -131,29 +165,42 @@ class UpdateViewModel(application: Application) : AndroidViewModel(application) 
 
   fun startDownload(autoInstallWhenReady: Boolean = false) {
     val manifest = _uiState.value.availableManifest ?: return
-    if (_uiState.value.downloadState is DownloadState.Downloading) return
+    val currentDownload = _uiState.value.downloadState
+    if (currentDownload is DownloadState.Downloading || currentDownload is DownloadState.Verifying) return
 
     downloadJob?.cancel()
     downloadJob = viewModelScope.launch {
       _uiState.update {
         it.copy(
-          downloadState = DownloadState.Downloading(0L, -1L, 0),
+          downloadState = DownloadState.Downloading(0L, manifest.apkSizeBytes ?: -1L, 0),
           installerLaunchError = null
         )
       }
 
-      val result = downloader.downloadAndVerify(manifest) { bytes, total, percent ->
-        _uiState.update {
-          it.copy(downloadState = DownloadState.Downloading(bytes, total, percent))
+      val result = downloader.downloadAndVerify(
+        manifest = manifest,
+        onProgress = { bytes, total, percent ->
+          _uiState.update {
+            it.copy(downloadState = DownloadState.Downloading(bytes, total, percent))
+          }
+        },
+        onVerifying = { totalBytes ->
+          _uiState.update {
+            it.copy(downloadState = DownloadState.Verifying(totalBytes))
+          }
         }
-      }
+      )
 
       if (result.isSuccess) {
         val apkFile = result.getOrThrow()
         val hasPerm = ApkInstaller.canRequestPackageInstalls(appContext)
         _uiState.update {
           it.copy(
-            downloadState = DownloadState.VerifiedReadyToInstall(manifest, apkFile),
+            downloadState = DownloadState.VerifiedReadyToInstall(
+              manifest = manifest,
+              apkFile = apkFile,
+              totalBytes = apkFile.length()
+            ),
             hasInstallPermission = hasPerm
           )
         }
@@ -183,7 +230,7 @@ class UpdateViewModel(application: Application) : AndroidViewModel(application) 
     if (verifiedFile == null) {
       _uiState.update {
         it.copy(
-          downloadState = DownloadState.Failed("Downloaded APK is missing or corrupted. Please download again."),
+          downloadState = DownloadState.Failed("Downloaded APK is missing or failed security verification. Please download again."),
           installerLaunchError = null
         )
       }

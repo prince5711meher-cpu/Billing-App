@@ -17,8 +17,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -46,7 +48,9 @@ import androidx.compose.ui.unit.sp
 import androidx.credentials.CredentialManager
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.printer.PrinterConnectionState
 import com.example.ui.auth.signOutUser
+import com.example.ui.printer.PrinterViewModel
 import com.example.ui.theme.PrimaryBlue
 import com.example.ui.theme.SuccessGreen
 import com.example.ui.theme.SurfaceLight
@@ -65,6 +69,8 @@ private val SettingsIconShape = RoundedCornerShape(8.dp)
 fun SettingsScreen(
   viewModel: SettingsViewModel,
   updateViewModel: UpdateViewModel = viewModel(),
+  printerViewModel: PrinterViewModel = viewModel(),
+  onOpenPrinterSettings: () -> Unit = {},
   onSignOut: () -> Unit
 ) {
   val context = LocalContext.current
@@ -74,6 +80,8 @@ fun SettingsScreen(
   val settings by viewModel.settingsState.collectAsStateWithLifecycle()
   val isSaving by viewModel.isSaving.collectAsStateWithLifecycle()
   val updateUiState by updateViewModel.uiState.collectAsStateWithLifecycle()
+  val printerSettings by printerViewModel.printerSettings.collectAsStateWithLifecycle()
+  val printerConnState by printerViewModel.connectionState.collectAsStateWithLifecycle()
 
   val colorScheme = MaterialTheme.colorScheme
   val surfaceColor = colorScheme.surface
@@ -273,6 +281,70 @@ fun SettingsScreen(
           Icon(Icons.Default.Logout, contentDescription = null, tint = WarningOrange, modifier = Modifier.size(18.dp))
           Spacer(modifier = Modifier.width(6.dp))
           Text("Sign Out of Account", color = WarningOrange)
+        }
+      }
+
+      // Bluetooth Thermal Printer Card
+      Column(
+        modifier = Modifier
+          .fillMaxWidth()
+          .background(surfaceColor, SettingsCardShape)
+          .border(1.dp, borderColor, SettingsCardShape)
+          .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+      ) {
+        Text(
+          text = "Thermal Printer (POSIFLOW)",
+          style = MaterialTheme.typography.titleSmall,
+          fontWeight = FontWeight.Bold,
+          color = textPrimary
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          val isConnected = printerConnState is PrinterConnectionState.Connected
+          val iconTint = if (isConnected) SuccessGreen else PrimaryBlue
+          Box(
+            modifier = Modifier
+              .size(36.dp)
+              .background(iconTint.copy(alpha = 0.14f), SettingsIconShape),
+            contentAlignment = Alignment.Center
+          ) {
+            Icon(Icons.Default.Print, contentDescription = null, tint = iconTint)
+          }
+          Spacer(modifier = Modifier.width(12.dp))
+          Column(modifier = Modifier.weight(1f)) {
+            val statusText = when (val st = printerConnState) {
+              is PrinterConnectionState.Connected -> "Connected: ${st.deviceName}"
+              is PrinterConnectionState.Connecting -> "Connecting to ${st.deviceName}..."
+              is PrinterConnectionState.Error -> st.message
+              PrinterConnectionState.Disconnected -> if (printerSettings.rememberedPrinterName.isNotBlank()) {
+                "Saved: ${printerSettings.rememberedPrinterName} (Disconnected)"
+              } else {
+                "No Bluetooth printer paired or selected"
+              }
+            }
+            Text(statusText, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = textPrimary)
+            Text(
+              text = "Paper: ${printerSettings.selectedPaperWidthLabel} • Auto-print: ${if (printerSettings.autoPrintAfterBill) "On" else "Off"}",
+              fontSize = 12.sp,
+              color = textSecondary
+            )
+          }
+        }
+
+        OutlinedButton(
+          onClick = onOpenPrinterSettings,
+          modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp),
+          shape = SettingsButtonShape
+        ) {
+          Text("Configure Bluetooth Printer & Paper Size", fontWeight = FontWeight.SemiBold)
+          Spacer(modifier = Modifier.width(6.dp))
+          Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp)
+          )
         }
       }
 

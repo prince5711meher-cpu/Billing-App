@@ -9,7 +9,8 @@ data class UpdateManifest(
   val releaseNotes: List<String>,
   val apkUrl: String,
   val sha256: String,
-  val mandatory: Boolean
+  val mandatory: Boolean,
+  val apkSizeBytes: Long? = null
 ) {
   fun isUpdateAvailableFor(installedVersionCode: Long): Boolean {
     return versionCode > installedVersionCode
@@ -44,15 +45,21 @@ sealed interface UpdateCheckResult {
 
 sealed interface DownloadState {
   data object Idle : DownloadState
+
   data class Downloading(
     val bytesDownloaded: Long,
     val totalBytes: Long,
     val progressPercent: Int
   ) : DownloadState
 
+  data class Verifying(
+    val totalBytes: Long
+  ) : DownloadState
+
   data class VerifiedReadyToInstall(
     val manifest: UpdateManifest,
-    val apkFile: File
+    val apkFile: File,
+    val totalBytes: Long = apkFile.length()
   ) : DownloadState
 
   data class Failed(

@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -37,6 +38,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.model.Invoice
+import com.example.ui.printer.PrinterSettingsScreen
+import com.example.ui.printer.PrinterViewModel
 import com.example.ui.screens.BillingViewModel
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.InvoicesScreen
@@ -57,7 +60,8 @@ enum class NavDestination(val label: String, val icon: ImageVector) {
   NEW_BILL("New Bill", Icons.Default.Add),
   ITEMS("Items", Icons.Default.Inventory2),
   REPORTS("Reports", Icons.Default.Assessment),
-  SETTINGS("Settings", Icons.Default.Settings)
+  SETTINGS("Settings", Icons.Default.Settings),
+  PRINTER_SETTINGS("Printer", Icons.Default.Print)
 }
 
 private val BottomNavDestinations = listOf(
@@ -74,11 +78,13 @@ fun AppNavigation(
   billingViewModel: BillingViewModel = viewModel(),
   settingsViewModel: SettingsViewModel = viewModel(),
   itemsViewModel: ItemsViewModel = viewModel(),
-  updateViewModel: UpdateViewModel = viewModel()
+  updateViewModel: UpdateViewModel = viewModel(),
+  printerViewModel: PrinterViewModel = viewModel()
 ) {
   val stateHolder = rememberSaveableStateHolder()
   var currentDestination by remember { mutableStateOf(NavDestination.HOME) }
   var editReturnDestination by remember { mutableStateOf(NavDestination.INVOICES) }
+  var printerReturnDestination by remember { mutableStateOf(NavDestination.SETTINGS) }
   var selectedInvoiceForDetail by remember { mutableStateOf<Invoice?>(null) }
 
   val startEditing: (Invoice, NavDestination) -> Unit = remember(billingViewModel) {
@@ -89,10 +95,21 @@ fun AppNavigation(
     }
   }
 
-  // Handle system back navigation to return to Home
+  val openPrinterSettings: (NavDestination) -> Unit = remember {
+    { origin ->
+      printerReturnDestination = origin
+      currentDestination = NavDestination.PRINTER_SETTINGS
+    }
+  }
+
+  // Handle system back navigation
   if (currentDestination != NavDestination.HOME) {
     BackHandler {
-      currentDestination = NavDestination.HOME
+      currentDestination = if (currentDestination == NavDestination.PRINTER_SETTINGS) {
+        printerReturnDestination
+      } else {
+        NavDestination.HOME
+      }
     }
   }
 
@@ -182,11 +199,13 @@ fun AppNavigation(
             InvoicesScreen(
               viewModel = billingViewModel,
               settingsViewModel = settingsViewModel,
+              printerViewModel = printerViewModel,
               selectedInvoice = selectedInvoiceForDetail,
               onClearSelectedInvoice = { selectedInvoiceForDetail = null },
               onEditInvoice = { invoice ->
                 startEditing(invoice, NavDestination.INVOICES)
-              }
+              },
+              onOpenPrinterSettings = { openPrinterSettings(NavDestination.INVOICES) }
             )
           }
 
@@ -195,6 +214,8 @@ fun AppNavigation(
               viewModel = billingViewModel,
               settingsViewModel = settingsViewModel,
               itemsViewModel = itemsViewModel,
+              printerViewModel = printerViewModel,
+              onOpenPrinterSettings = { openPrinterSettings(NavDestination.NEW_BILL) },
               onBillSaved = {
                 // Keep user on NewBillScreen for WhatsApp share or creating another bill
               },
@@ -232,7 +253,16 @@ fun AppNavigation(
             SettingsScreen(
               viewModel = settingsViewModel,
               updateViewModel = updateViewModel,
+              printerViewModel = printerViewModel,
+              onOpenPrinterSettings = { openPrinterSettings(NavDestination.SETTINGS) },
               onSignOut = onSignOut
+            )
+          }
+
+          NavDestination.PRINTER_SETTINGS -> {
+            PrinterSettingsScreen(
+              viewModel = printerViewModel,
+              onBack = { currentDestination = printerReturnDestination }
             )
           }
         }

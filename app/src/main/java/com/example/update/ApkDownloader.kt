@@ -25,11 +25,23 @@ class ApkDownloader(
   private val availableBytesProvider: (File) -> Long = { dir ->
     if (!dir.exists()) dir.mkdirs()
     StatFs(dir.absolutePath).availableBytes
+  },
+  private val apkVerifier: (apkFile: File, manifest: UpdateManifest) -> Result<Unit> = { _, _ ->
+    Result.success(Unit)
   }
 ) {
 
   constructor(context: Context) : this(
-    downloadDir = File(context.applicationContext.filesDir, UpdateConfig.DOWNLOAD_DIRECTORY_NAME)
+    downloadDir = File(context.applicationContext.filesDir, UpdateConfig.DOWNLOAD_DIRECTORY_NAME),
+    apkVerifier = { apkFile, manifest ->
+      val installedCode = ApkInstaller.getInstalledVersionInfo(context.applicationContext).versionCode
+      ApkInstaller.verifyDownloadedApk(
+        context = context.applicationContext,
+        apkFile = apkFile,
+        manifest = manifest,
+        installedVersionCode = installedCode
+      )
+    }
   )
 
   private val redirectSafeClient: OkHttpClient = baseClient.newBuilder()
@@ -46,12 +58,15 @@ class ApkDownloader(
     val file = getTargetApkFile(manifest.versionCode)
     if (!file.exists() || !file.isFile || file.length() <= 0L) return null
     val actualHash = runCatching { computeSha256(file) }.getOrNull()
-    return if (actualHash != null && actualHash.equals(manifest.sha256, ignoreCase = true)) {
-      file
-    } else {
+    if (actualHash == null || !actualHash.equals(manifest.sha256, ignoreCase = true)) {
       file.delete()
-      null
+      return null
     }
+    if (apkVerifier(file, manifest).isFailure) {
+      file.delete()
+      return null
+    }
+    return file
   }
 
   fun cleanupObsoleteApks(installedVersionCode: Long) {
@@ -72,7 +87,8 @@ class ApkDownloader(
 
   suspend fun downloadAndVerify(
     manifest: UpdateManifest,
-    onProgress: (bytesDownloaded: Long, totalBytes: Long, percent: Int) -> Unit
+    onProgress: (bytesDownloaded: Long, totalBytes: Long, percent: Int) -> Unit,
+    onVerifying: (totalBytes: Long) -> Unit = {}
   ): Result<File> = withContext(Dispatchers.IO) {
     if (!downloadDir.exists() && !downloadDir.mkdirs()) {
       return@withContext Result.failure(IOException("Unable to prepare update storage directory."))
@@ -87,7 +103,6 @@ class ApkDownloader(
     val targetFile = getTargetApkFile(manifest.versionCode)
     val partFile = File(downloadDir, "update_v${manifest.versionCode}.apk.part")
     if (partFile.exists()) partFile.delete()
-    if (targetFile.exists()) targetFile.delete()
 
     // Check minimum baseline storage before connecting
     val initialAvailable = runCatching { availableBytesProvider(downloadDir) }.getOrDefault(0L)
@@ -174,6 +189,9 @@ class ApkDownloader(
         return@withContext Result.failure(IOException("Incomplete APK download. Please retry."))
       }
 
+      onVerifying(totalRead)
+
+      // 1. Verify SHA-256 checksum
       val actualSha256 = digest.digest().joinToString("") { "%02x".format(it) }
       if (!actualSha256.equals(manifest.sha256, ignoreCase = true)) {
         partFile.delete()
@@ -182,20 +200,32 @@ class ApkDownloader(
         )
       }
 
+      // 2. Verify APK package ID, versionCode, and trusted signing certificate
+      val archiveCheck = apkVerifier(partFile, manifest)
+      if (archiveCheck.isFailure) {
+        partFile.delete()
+        val cause = archiveCheck.exceptionOrNull()
+        return@withContext Result.failure(
+          cause as? SecurityException
+            ?: SecurityException(cause?.message ?: "APK signature verification failed.", cause)
+        )
+      }
+
+      // 3. Only promote verified replacement over targetFile after all security checks pass
+      if (targetFile.exists()) {
+        targetFile.delete()
+      }
       if (!partFile.renameTo(targetFile)) {
         partFile.copyTo(targetFile, overwrite = true)
         partFile.delete()
       }
 
-      onProgress(totalRead, totalRead, 100)
       Result.success(targetFile)
     } catch (e: CancellationException) {
       partFile.delete()
-      targetFile.delete()
       throw e
     } catch (e: Exception) {
       partFile.delete()
-      targetFile.delete()
       Result.failure(e)
     } finally {
       activeResponse?.close()

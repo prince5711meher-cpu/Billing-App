@@ -74,6 +74,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.domain.InvoiceCalculationResult
 import com.example.data.domain.InvoiceEngine
 import com.example.data.domain.MoneyFormatter
@@ -81,6 +82,8 @@ import com.example.data.model.BusinessSettings
 import com.example.data.model.Invoice
 import com.example.data.model.InvoiceItem
 import com.example.data.model.SavedItem
+import com.example.ui.printer.PrinterViewModel
+import com.example.ui.printer.ReceiptPrintActionSection
 import com.example.ui.theme.BorderLight
 import com.example.ui.theme.CashColor
 import com.example.ui.theme.PrimaryBlue
@@ -107,6 +110,8 @@ fun NewBillScreen(
   viewModel: BillingViewModel,
   settingsViewModel: SettingsViewModel,
   itemsViewModel: ItemsViewModel,
+  printerViewModel: PrinterViewModel = viewModel(),
+  onOpenPrinterSettings: () -> Unit = {},
   onBillSaved: (String) -> Unit,
   onCancelEdit: () -> Unit = {}
 ) {
@@ -119,6 +124,10 @@ fun NewBillScreen(
   val isSaving by viewModel.isSaving.collectAsStateWithLifecycle()
   val settings by settingsViewModel.settingsState.collectAsStateWithLifecycle()
   val savedItems by itemsViewModel.itemsState.collectAsStateWithLifecycle()
+  val printerSettings by printerViewModel.printerSettings.collectAsStateWithLifecycle()
+  val printerConnState by printerViewModel.connectionState.collectAsStateWithLifecycle()
+  val printJobState by printerViewModel.printJobState.collectAsStateWithLifecycle()
+  val printerLayoutSpec by printerViewModel.layoutSpec.collectAsStateWithLifecycle()
 
   val colorScheme = MaterialTheme.colorScheme
   val surfaceColor = colorScheme.surface
@@ -130,6 +139,7 @@ fun NewBillScreen(
   var editingItemIndex by remember { mutableStateOf<Int?>(null) }
   var showSuccessSheet by remember { mutableStateOf(false) }
   var savedReceiptWasEdit by remember { mutableStateOf(false) }
+  var lastSavedInvoice by remember { mutableStateOf<Invoice?>(null) }
   var lastSavedInvoiceSummary by remember { mutableStateOf<String?>(null) }
 
   val calculation = draft.calculation
@@ -307,8 +317,10 @@ fun NewBillScreen(
           onSuccess = { invoiceId, savedInvoice ->
             clearSignal++
             savedReceiptWasEdit = wasEdit
+            lastSavedInvoice = savedInvoice
             lastSavedInvoiceSummary = buildSavedInvoiceShareText(savedInvoice, settings)
             showSuccessSheet = true
+            printerViewModel.autoPrintBillIfEnabled(savedInvoice, settings)
             onBillSaved(invoiceId)
           },
           onError = { msg ->
@@ -349,12 +361,13 @@ fun NewBillScreen(
   if (showSuccessSheet && lastSavedInvoiceSummary != null) {
     ModalBottomSheet(
       onDismissRequest = { showSuccessSheet = false },
-      sheetState = rememberModalBottomSheetState()
+      sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ) {
       Column(
         modifier = Modifier
           .fillMaxWidth()
-          .padding(24.dp),
+          .verticalScroll(rememberScrollState())
+          .padding(horizontal = 24.dp, vertical = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
       ) {
         Box(
@@ -366,7 +379,7 @@ fun NewBillScreen(
           Icon(Icons.Default.Check, contentDescription = null, tint = SuccessGreen, modifier = Modifier.size(32.dp))
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(14.dp))
 
         Text(
           text = if (savedReceiptWasEdit) "Bill Updated Successfully!" else "Bill Finalized Successfully!",
@@ -374,7 +387,7 @@ fun NewBillScreen(
           fontWeight = FontWeight.Bold
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
         Text(
           text = if (savedReceiptWasEdit) {
@@ -386,7 +399,25 @@ fun NewBillScreen(
           color = TextSecondary
         )
 
-        Spacer(modifier = Modifier.height(20.dp))
+        lastSavedInvoice?.let { saved ->
+          Spacer(modifier = Modifier.height(16.dp))
+          val jobKey = "INVOICE_${saved.id.ifBlank { saved.invoiceNumber }}"
+          ReceiptPrintActionSection(
+            jobKey = jobKey,
+            connectionState = printerConnState,
+            printJobState = printJobState,
+            printerSettings = printerSettings,
+            layoutSpec = printerLayoutSpec,
+            onPrintBill = { printerViewModel.printInvoice(saved, settings) },
+            onRetryPrint = { printerViewModel.retryLastFailedPrint() },
+            onOpenPrinterSettings = {
+              showSuccessSheet = false
+              onOpenPrinterSettings()
+            }
+          )
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
 
         Button(
           onClick = {
@@ -408,7 +439,7 @@ fun NewBillScreen(
           Text("Share Receipt on WhatsApp", fontWeight = FontWeight.SemiBold)
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
         OutlinedButton(
           onClick = { showSuccessSheet = false },
@@ -419,6 +450,8 @@ fun NewBillScreen(
         ) {
           Text("Create Another Bill")
         }
+
+        Spacer(modifier = Modifier.height(8.dp))
       }
     }
   }

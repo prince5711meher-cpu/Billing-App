@@ -57,10 +57,13 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.domain.MoneyFormatter
 import com.example.data.model.BusinessSettings
 import com.example.data.model.Invoice
 import com.example.data.model.Payment
+import com.example.ui.printer.PrinterViewModel
+import com.example.ui.printer.ReceiptPrintActionSection
 import com.example.ui.theme.BorderLight
 import com.example.ui.theme.CashColor
 import com.example.ui.theme.PrimaryBlue
@@ -78,13 +81,19 @@ import java.util.Locale
 fun InvoicesScreen(
   viewModel: BillingViewModel,
   settingsViewModel: SettingsViewModel,
+  printerViewModel: PrinterViewModel = viewModel(),
   selectedInvoice: Invoice? = null,
   onClearSelectedInvoice: () -> Unit = {},
-  onEditInvoice: (Invoice) -> Unit = {}
+  onEditInvoice: (Invoice) -> Unit = {},
+  onOpenPrinterSettings: () -> Unit = {}
 ) {
   val context = LocalContext.current
   val invoices by viewModel.invoicesState.collectAsStateWithLifecycle()
   val settings by settingsViewModel.settingsState.collectAsStateWithLifecycle()
+  val printerSettings by printerViewModel.printerSettings.collectAsStateWithLifecycle()
+  val printerConnState by printerViewModel.connectionState.collectAsStateWithLifecycle()
+  val printJobState by printerViewModel.printJobState.collectAsStateWithLifecycle()
+  val printerLayoutSpec by printerViewModel.layoutSpec.collectAsStateWithLifecycle()
   val listState = rememberLazyListState()
   val chipScrollState = rememberScrollState()
 
@@ -404,7 +413,25 @@ fun InvoicesScreen(
           )
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(16.dp))
+
+        val detailJobKey = "INVOICE_${inv.id.ifBlank { inv.invoiceNumber }}"
+        ReceiptPrintActionSection(
+          jobKey = detailJobKey,
+          connectionState = printerConnState,
+          printJobState = printJobState,
+          printerSettings = printerSettings,
+          layoutSpec = printerLayoutSpec,
+          onPrintBill = { printerViewModel.printInvoice(inv, settings) },
+          onRetryPrint = { printerViewModel.retryLastFailedPrint() },
+          onOpenPrinterSettings = {
+            activeDetailInvoice = null
+            onClearSelectedInvoice()
+            onOpenPrinterSettings()
+          }
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
 
         // Action Buttons Row 1: Edit Bill & WhatsApp Share
         Row(

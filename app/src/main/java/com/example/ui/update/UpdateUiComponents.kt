@@ -160,19 +160,20 @@ fun SettingsUpdateSection(
         )
       }
 
-      if (uiState.lastCheckedAtMs > 0L) {
-        Spacer(modifier = Modifier.height(6.dp))
-        val formattedTime = remember(uiState.lastCheckedAtMs) {
-          SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
-            .format(Date(uiState.lastCheckedAtMs))
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+      ) {
+        Text("Last Checked", fontSize = 12.sp, color = TextSecondary)
+        val formattedTime = if (uiState.lastCheckedAtMs > 0L) {
+          remember(uiState.lastCheckedAtMs) {
+            SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
+              .format(Date(uiState.lastCheckedAtMs))
+          }
+        } else {
+          "Not checked yet"
         }
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-          Text("Last Checked", fontSize = 12.sp, color = TextSecondary)
-          Text(formattedTime, fontSize = 12.sp, color = TextSecondary)
-        }
+        Text(formattedTime, fontSize = 12.sp, color = TextSecondary)
       }
 
       // Status / Error Feedback Box
@@ -204,14 +205,29 @@ fun SettingsUpdateSection(
         else -> Unit
       }
 
-      // Release notes when an update is available
+      // Release notes & optional size when an update is available
       val manifest = uiState.availableManifest
       if (manifest != null) {
         Spacer(modifier = Modifier.height(12.dp))
-        Text(
-          text = "What's New in v${manifest.versionName}",
-          style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
-        )
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          Text(
+            text = "What's New in v${manifest.versionName}",
+            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+          )
+          val knownSizeBytes = resolveDisplaySizeBytes(manifest, uiState.downloadState)
+          if (knownSizeBytes != null && knownSizeBytes > 0L) {
+            Text(
+              text = formatMb(knownSizeBytes),
+              fontSize = 12.sp,
+              fontWeight = FontWeight.Medium,
+              color = TextSecondary
+            )
+          }
+        }
         Spacer(modifier = Modifier.height(6.dp))
         if (manifest.releaseNotes.isEmpty()) {
           Text("• Bug fixes and stability improvements", fontSize = 12.sp, color = TextSecondary)
@@ -242,9 +258,11 @@ fun SettingsUpdateSection(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
       ) {
+        val isBusyDownloadingOrVerifying = uiState.downloadState is DownloadState.Downloading ||
+          uiState.downloadState is DownloadState.Verifying
         OutlinedButton(
           onClick = onCheckUpdates,
-          enabled = !uiState.isChecking && uiState.downloadState !is DownloadState.Downloading,
+          enabled = !uiState.isChecking && !isBusyDownloadingOrVerifying,
           modifier = Modifier
             .weight(1f)
             .height(48.dp)
@@ -279,7 +297,7 @@ fun SettingsUpdateSection(
                 Text("Install Update", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
               }
             }
-            is DownloadState.Downloading -> Unit
+            is DownloadState.Downloading, is DownloadState.Verifying -> Unit
             else -> {
               Button(
                 onClick = onDownloadUpdate,
@@ -344,9 +362,12 @@ fun OptionalUpdateDialog(
 ) {
   val manifest = uiState.availableManifest ?: return
 
+  val isBusy = uiState.downloadState is DownloadState.Downloading ||
+    uiState.downloadState is DownloadState.Verifying
+
   AlertDialog(
     onDismissRequest = {
-      if (uiState.downloadState !is DownloadState.Downloading) {
+      if (!isBusy) {
         onDismissLater()
       }
     },
@@ -376,6 +397,16 @@ fun OptionalUpdateDialog(
           fontSize = 12.sp,
           color = TextSecondary
         )
+
+        val displaySizeBytes = resolveDisplaySizeBytes(manifest, uiState.downloadState)
+        if (displaySizeBytes != null && displaySizeBytes > 0L) {
+          Text(
+            text = "Download size: ${formatMb(displaySizeBytes)}",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            color = TextSecondary
+          )
+        }
 
         if (manifest.releaseNotes.isNotEmpty()) {
           Text("What's New:", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
@@ -415,19 +446,24 @@ fun OptionalUpdateDialog(
             Text("Cancel Download")
           }
         }
+        is DownloadState.Verifying -> {
+          OutlinedButton(onClick = {}, enabled = false) {
+            Text("Verifying...")
+          }
+        }
         else -> {
           Button(
             onClick = onUpdateNow,
             colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue),
             modifier = Modifier.testTag("dialog_update_now_button")
           ) {
-            Text("Update Now")
+            Text("Update")
           }
         }
       }
     },
     dismissButton = {
-      if (uiState.downloadState !is DownloadState.Downloading) {
+      if (!isBusy) {
         TextButton(
           onClick = onDismissLater,
           modifier = Modifier.testTag("dialog_update_later_button")
@@ -564,6 +600,20 @@ fun MandatoryUpdateScreen(
             Text("Cancel Download")
           }
         }
+        is DownloadState.Verifying -> {
+          OutlinedButton(
+            onClick = {},
+            enabled = false,
+            modifier = Modifier
+              .fillMaxWidth()
+              .height(50.dp),
+            shape = RoundedCornerShape(12.dp)
+          ) {
+            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Verifying Security...")
+          }
+        }
         else -> {
           Button(
             onClick = onUpdateNow,
@@ -583,9 +633,12 @@ fun MandatoryUpdateScreen(
 
       Spacer(modifier = Modifier.height(10.dp))
 
+      val isMandatoryBusy = uiState.isChecking ||
+        uiState.downloadState is DownloadState.Downloading ||
+        uiState.downloadState is DownloadState.Verifying
       OutlinedButton(
         onClick = onRetryCheck,
-        enabled = !uiState.isChecking && uiState.downloadState !is DownloadState.Downloading,
+        enabled = !isMandatoryBusy,
         modifier = Modifier
           .fillMaxWidth()
           .height(48.dp)
@@ -678,9 +731,34 @@ private fun DownloadProgressAndErrorBlock(
       }
     }
 
+    is DownloadState.Verifying -> {
+      Column(
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(bottom = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+      ) {
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          val sizeInfo = if (downloadState.totalBytes > 0L) " (${formatMb(downloadState.totalBytes)})" else ""
+          Text("Verifying checksum & signing certificate$sizeInfo...", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+        }
+        LinearProgressIndicator(
+          modifier = Modifier
+            .fillMaxWidth()
+            .height(8.dp),
+          color = PrimaryBlue
+        )
+      }
+    }
+
     is DownloadState.VerifiedReadyToInstall -> {
+      val verifiedSize = if (downloadState.totalBytes > 0L) " (${formatMb(downloadState.totalBytes)})" else ""
       StatusNoticeBox(
-        text = "APK verified (SHA-256 OK). Ready to install v${downloadState.manifest.versionName}.",
+        text = "Verified (SHA-256 & signing certificate OK)$verifiedSize. Ready to install v${downloadState.manifest.versionName}.",
         tint = SuccessGreen,
         icon = Icons.Default.CheckCircle
       )
@@ -732,6 +810,7 @@ private fun UpdateStatusBadge(uiState: AppUpdateUiState) {
   val (label, color) = when {
     uiState.isChecking -> "Checking" to PrimaryBlue
     uiState.downloadState is DownloadState.Downloading -> "Downloading" to PrimaryBlue
+    uiState.downloadState is DownloadState.Verifying -> "Verifying" to PrimaryBlue
     uiState.downloadState is DownloadState.VerifiedReadyToInstall -> "Ready" to SuccessGreen
     uiState.isMandatoryBlocked -> "Required" to UdharColor
     uiState.availableManifest != null -> "Available" to WarningOrange
@@ -771,6 +850,18 @@ private fun StatusNoticeBox(
     Icon(imageVector = icon, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
     Spacer(modifier = Modifier.width(8.dp))
     Text(text = text, fontSize = 12.sp, color = TextPrimary)
+  }
+}
+
+private fun resolveDisplaySizeBytes(
+  manifest: com.example.update.UpdateManifest,
+  downloadState: DownloadState
+): Long? {
+  return when (downloadState) {
+    is DownloadState.Downloading -> downloadState.totalBytes.takeIf { it > 0L } ?: manifest.apkSizeBytes
+    is DownloadState.Verifying -> downloadState.totalBytes.takeIf { it > 0L } ?: manifest.apkSizeBytes
+    is DownloadState.VerifiedReadyToInstall -> downloadState.totalBytes.takeIf { it > 0L } ?: manifest.apkSizeBytes
+    else -> manifest.apkSizeBytes
   }
 }
 
