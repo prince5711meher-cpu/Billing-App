@@ -61,6 +61,7 @@ class PrinterSettingsRepository(context: Context) {
       fontSize = fontSize,
       boldText = prefs.getBoolean(KEY_BOLD_TEXT, false),
       autoPrintAfterBill = prefs.getBoolean(KEY_AUTO_PRINT, false),
+      autoCutPaper = prefs.getBoolean(KEY_AUTO_CUT, false),
       renderMode = renderMode
     )
   }
@@ -86,6 +87,7 @@ class PrinterSettingsRepository(context: Context) {
       .putString(KEY_FONT_SIZE, s.fontSize.name)
       .putBoolean(KEY_BOLD_TEXT, s.boldText)
       .putBoolean(KEY_AUTO_PRINT, s.autoPrintAfterBill)
+      .putBoolean(KEY_AUTO_CUT, s.autoCutPaper)
       .putString(KEY_RENDER_MODE, s.renderMode.name)
       .apply()
   }
@@ -160,6 +162,10 @@ class PrinterSettingsRepository(context: Context) {
     updateAndPersist { it.copy(autoPrintAfterBill = enabled) }
   }
 
+  fun setAutoCutPaper(enabled: Boolean) {
+    updateAndPersist { it.copy(autoCutPaper = enabled) }
+  }
+
   fun setRenderMode(mode: PrintRenderMode) {
     updateAndPersist { it.copy(renderMode = mode) }
   }
@@ -177,6 +183,7 @@ class PrinterSettingsRepository(context: Context) {
     private const val KEY_FONT_SIZE = "font_size"
     private const val KEY_BOLD_TEXT = "bold_text"
     private const val KEY_AUTO_PRINT = "auto_print_after_bill"
+    private const val KEY_AUTO_CUT = "auto_cut_paper"
     private const val KEY_RENDER_MODE = "render_mode"
   }
 }

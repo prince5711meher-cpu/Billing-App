@@ -1,5 +1,6 @@
 package com.example.printer
 
+import android.graphics.Bitmap
 import com.example.data.domain.MoneyFormatter
 import com.example.data.model.BusinessSettings
 import com.example.data.model.Invoice
@@ -9,6 +10,10 @@ import java.util.Locale
 import kotlin.math.roundToLong
 
 sealed interface ReceiptElement {
+  data class LogoHeader(
+    val contentDescription: String = "Meher Basan Bhandar Logo"
+  ) : ReceiptElement
+
   data class TextLine(
     val text: String,
     val bold: Boolean = false,
@@ -43,7 +48,8 @@ object ReceiptFormatter {
     printerSettings: PrinterSettings,
     printerBrand: String = "POSIFLOW",
     connectionLabel: String = "Bluetooth",
-    timestampMillis: Long = System.currentTimeMillis()
+    timestampMillis: Long = System.currentTimeMillis(),
+    includeLogo: Boolean = true
   ): FormattedReceipt {
     val spec = printerSettings.computeLayoutSpec()
     val cols = spec.columnsPerLine
@@ -52,6 +58,9 @@ object ReceiptFormatter {
       .format(Date(timestampMillis))
 
     val elements = buildList {
+      if (includeLogo) {
+        add(ReceiptElement.LogoHeader())
+      }
       add(
         ReceiptElement.TextLine(
           text = "MEHER BASAN BHANDAR",
@@ -103,12 +112,13 @@ object ReceiptFormatter {
   fun buildInvoiceReceipt(
     invoice: Invoice,
     businessSettings: BusinessSettings,
-    printerSettings: PrinterSettings
+    printerSettings: PrinterSettings,
+    includeLogo: Boolean = true
   ): FormattedReceipt {
     val spec = printerSettings.computeLayoutSpec()
     val cols = spec.columnsPerLine
     val headerAlign = printerSettings.textAlignment
-    val asciiSafe = printerSettings.renderMode == PrintRenderMode.ESC_POS_TEXT
+    val asciiSafe = printerSettings.renderMode != PrintRenderMode.RASTER_BITMAP
     val defaultBold = printerSettings.boldText
 
     val shopName = businessSettings.businessName
@@ -120,6 +130,10 @@ object ReceiptFormatter {
     val dateStr = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(dateObj)
 
     val elements = mutableListOf<ReceiptElement>()
+
+    if (includeLogo) {
+      elements.add(ReceiptElement.LogoHeader())
+    }
 
     // Header
     wrapText(shopName.uppercase(Locale.getDefault()), cols).forEachIndexed { idx, line ->
@@ -308,17 +322,32 @@ object ReceiptFormatter {
 
   fun toEscPosBytes(
     receipt: FormattedReceipt,
-    printerSettings: PrinterSettings
+    printerSettings: PrinterSettings,
+    logoBitmap: Bitmap? = null
   ): ByteArray {
     val builder = EscPosCommandBuilder()
       .initialize()
-      .setCodePageCp437()
       .setDensity(printerSettings.printDensity)
 
     val cols = receipt.layoutSpec.columnsPerLine
+    val maxDots = receipt.layoutSpec.dotsPerLine
 
     for (el in receipt.elements) {
       when (el) {
+        is ReceiptElement.LogoHeader -> {
+          if (logoBitmap != null && !logoBitmap.isRecycled && logoBitmap.width > 0 && logoBitmap.height > 0) {
+            val fitted = ReceiptBitmapRenderer.fitBitmapToDots(logoBitmap, maxDots)
+            try {
+              builder.setAlignment(ReceiptAlignment.CENTER)
+              builder.appendRasterBitmap(fitted)
+              builder.feedLines(1)
+            } finally {
+              if (fitted !== logoBitmap) {
+                fitted.recycle()
+              }
+            }
+          }
+        }
         is ReceiptElement.BlankLine -> {
           builder.writeLine("")
         }
@@ -354,12 +383,55 @@ object ReceiptFormatter {
       }
     }
 
-    return builder
+    builder
       .setBold(false)
       .setAlignment(ReceiptAlignment.LEFT)
       .feedLines(4)
-      .cutPartial()
-      .build()
+    if (printerSettings.autoCutPaper) {
+      builder.cutPartial()
+    }
+    return builder.build()
+  }
+
+  fun toPlainTextBytes(receipt: FormattedReceipt): ByteArray {
+    val cols = receipt.layoutSpec.columnsPerLine
+    val sb = StringBuilder(1024)
+    for (el in receipt.elements) {
+      when (el) {
+        is ReceiptElement.LogoHeader -> Unit
+        is ReceiptElement.BlankLine -> sb.append('\n')
+        is ReceiptElement.Divider -> {
+          val char = if (el.doubleLine) '=' else '-'
+          sb.append(char.toString().repeat(cols)).append('\n')
+        }
+        is ReceiptElement.TextLine -> {
+          val clean = EscPosCommandBuilder.sanitizeForEscPosText(el.text)
+          val aligned = when (el.alignment) {
+            ReceiptAlignment.LEFT -> clean
+            ReceiptAlignment.CENTER -> {
+              val pad = ((cols - clean.length) / 2).coerceAtLeast(0)
+              " ".repeat(pad) + clean
+            }
+            ReceiptAlignment.RIGHT -> {
+              val pad = (cols - clean.length).coerceAtLeast(0)
+              " ".repeat(pad) + clean
+            }
+          }
+          sb.append(aligned).append('\n')
+        }
+        is ReceiptElement.KeyValueLine -> {
+          formatKeyValueLines(
+            EscPosCommandBuilder.sanitizeForEscPosText(el.left),
+            EscPosCommandBuilder.sanitizeForEscPosText(el.right),
+            cols
+          ).forEach { line ->
+            sb.append(line).append('\n')
+          }
+        }
+      }
+    }
+    sb.append("\n\n\n\n")
+    return sb.toString().toByteArray(java.nio.charset.StandardCharsets.US_ASCII)
   }
 
   fun formatKeyValueLines(left: String, right: String, columns: Int): List<String> {

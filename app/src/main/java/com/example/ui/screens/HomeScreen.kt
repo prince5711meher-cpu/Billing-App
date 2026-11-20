@@ -36,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -44,8 +45,10 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.domain.MoneyFormatter
 import com.example.data.model.Invoice
+import com.example.ui.theme.BrandCobaltAccent
 import com.example.ui.theme.CashColor
 import com.example.ui.theme.PrimaryBlue
+import com.example.ui.theme.PrimaryNavyHero
 import com.example.ui.theme.SuccessGreen
 import com.example.ui.theme.SurfaceLight
 import com.example.ui.theme.UdharColor
@@ -148,7 +151,7 @@ fun HomeScreen(
     ) {
       Column {
         Text(
-          text = settings.businessName.ifBlank { "Billing App" },
+          text = settings.businessName.ifBlank { "Meher" },
           style = MaterialTheme.typography.titleLarge,
           fontWeight = FontWeight.Bold,
           color = textPrimary
@@ -175,7 +178,12 @@ fun HomeScreen(
     Column(
       modifier = Modifier
         .fillMaxWidth()
-        .background(PrimaryBlue, ShapeHeroCard)
+        .background(
+          brush = Brush.linearGradient(
+            colors = listOf(PrimaryNavyHero, BrandCobaltAccent)
+          ),
+          shape = ShapeHeroCard
+        )
         .padding(20.dp)
     ) {
       Text(
@@ -569,34 +577,33 @@ fun InvoiceRowCard(
   }
 }
 
-private val PaidBg = SuccessGreen.copy(alpha = 0.15f)
-private val PartPaidBg = WarningOrange.copy(alpha = 0.15f)
-private val UdharBg = UdharColor.copy(alpha = 0.15f)
-private val EstimateBg = PrimaryBlue.copy(alpha = 0.15f)
-
 @Composable
 fun StatusBadge(status: String) {
   val neutralText = MaterialTheme.colorScheme.onSurfaceVariant
   val neutralBg = MaterialTheme.colorScheme.outline
+  val paidBg = SuccessGreen.copy(alpha = 0.15f)
+  val partPaidBg = WarningOrange.copy(alpha = 0.15f)
+  val udharBg = UdharColor.copy(alpha = 0.15f)
+  val estimateBg = PrimaryBlue.copy(alpha = 0.15f)
   val bgColor: Color
   val textColor: Color
   val label: String
 
   when (status.uppercase()) {
     "PAID" -> {
-      bgColor = PaidBg; textColor = SuccessGreen; label = "Paid"
+      bgColor = paidBg; textColor = SuccessGreen; label = "Paid"
     }
     "PARTIALLY_PAID" -> {
-      bgColor = PartPaidBg; textColor = WarningOrange; label = "Part Due"
+      bgColor = partPaidBg; textColor = WarningOrange; label = "Part Due"
     }
     "UNPAID", "UDHAR" -> {
-      bgColor = UdharBg; textColor = UdharColor; label = "Udhar"
+      bgColor = udharBg; textColor = UdharColor; label = "Udhar"
     }
     "CANCELLED" -> {
       bgColor = neutralText.copy(alpha = 0.15f); textColor = neutralText; label = "Cancelled"
     }
     "QUOTATION" -> {
-      bgColor = EstimateBg; textColor = PrimaryBlue; label = "Estimate"
+      bgColor = estimateBg; textColor = PrimaryBlue; label = "Estimate"
     }
     else -> {
       bgColor = neutralBg; textColor = neutralText; label = status

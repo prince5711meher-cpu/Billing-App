@@ -9,14 +9,16 @@ import kotlinx.coroutines.flow.asStateFlow
 
 class PrinterManager(
   val settingsRepository: PrinterSettingsRepository,
-  val transport: PrinterTransport
+  val transport: PrinterTransport,
+  private val logoProvider: ReceiptLogoProvider? = null
 ) {
   constructor(context: Context) : this(
     settingsRepository = PrinterSettingsRepository(context),
-    transport = BluetoothClassicSppService(context)
+    transport = BluetoothClassicSppService(context),
+    logoProvider = AndroidReceiptLogoProvider(context.applicationContext)
   )
 
-  private val printRepository = ReceiptPrintRepository(transport)
+  private val printRepository = ReceiptPrintRepository(transport, logoProvider)
 
   val settingsState: StateFlow<PrinterSettings> = settingsRepository.settings
   val connectionState: StateFlow<PrinterConnectionState> = transport.connectionState
@@ -27,7 +29,12 @@ class PrinterManager(
   )
   val pairedDevicesResult: StateFlow<PairedDevicesResult> = _pairedDevicesResult.asStateFlow()
 
+  private val _bleScanResult = MutableStateFlow<PairedDevicesResult?>(null)
+  val bleScanResult: StateFlow<PairedDevicesResult?> = _bleScanResult.asStateFlow()
+
   fun hasBluetoothPermission(): Boolean = transport.hasRequiredPermission()
+
+  fun hasScanPermission(): Boolean = transport.hasScanPermission()
 
   fun isBluetoothSupported(): Boolean = transport.isBluetoothSupported()
 
@@ -39,9 +46,26 @@ class PrinterManager(
     return result
   }
 
+  suspend fun scanNearbyBleDevices(): PairedDevicesResult {
+    val result = transport.scanNearbyBleDevices()
+    _bleScanResult.value = result
+    return result
+  }
+
   suspend fun connect(device: BluetoothPrinterDevice): PrinterConnectionState {
     settingsRepository.rememberPrinter(device)
-    return transport.connect(device)
+    val state = transport.connect(device)
+    if (state is PrinterConnectionState.Connected) {
+      val actualTransport = if (state.protocolLabel.startsWith("BLE", ignoreCase = true)) {
+        PrinterTransportType.BLE_GATT
+      } else {
+        PrinterTransportType.BLUETOOTH_CLASSIC_SPP
+      }
+      if (actualTransport != device.transportType) {
+        settingsRepository.rememberPrinter(device.copy(transportType = actualTransport))
+      }
+    }
+    return state
   }
 
   suspend fun reconnectRemembered(): PrinterConnectionState? {
@@ -54,14 +78,37 @@ class PrinterManager(
       isLikelyPrinter = true,
       transportType = current.transportType
     )
-    return transport.connect(device)
+    val state = transport.connect(device)
+    if (state is PrinterConnectionState.Connected) {
+      val actualTransport = if (state.protocolLabel.startsWith("BLE", ignoreCase = true)) {
+        PrinterTransportType.BLE_GATT
+      } else {
+        PrinterTransportType.BLUETOOTH_CLASSIC_SPP
+      }
+      if (actualTransport != current.transportType) {
+        settingsRepository.rememberPrinter(device.copy(transportType = actualTransport))
+      }
+    }
+    return state
   }
 
   suspend fun disconnect() {
     transport.disconnect()
   }
 
+  /**
+   * Automatically reconnects to the saved printer if disconnected so one-tap Print / Auto-Print
+   * still works after app restart or idle timeouts.
+   */
+  private suspend fun ensureConnectedIfRemembered() {
+    if (connectionState.value is PrinterConnectionState.Connected) return
+    if (settingsState.value.rememberedPrinterAddress.isNotBlank()) {
+      reconnectRemembered()
+    }
+  }
+
   suspend fun printTestReceipt(): TransportPrintResult {
+    ensureConnectedIfRemembered()
     return printRepository.printTestReceipt(settingsState.value)
   }
 
@@ -70,6 +117,7 @@ class PrinterManager(
     businessSettings: BusinessSettings,
     isAutoPrint: Boolean = false
   ): TransportPrintResult {
+    ensureConnectedIfRemembered()
     return printRepository.printInvoice(
       invoice = invoice,
       businessSettings = businessSettings,
@@ -79,6 +127,7 @@ class PrinterManager(
   }
 
   suspend fun retryLastFailedPrint(): TransportPrintResult? {
+    ensureConnectedIfRemembered()
     return printRepository.retryLastFailedPrint()
   }
 

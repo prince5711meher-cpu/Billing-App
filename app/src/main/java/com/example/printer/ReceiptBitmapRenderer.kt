@@ -4,13 +4,23 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.Typeface
 import kotlin.math.ceil
+import kotlin.math.roundToInt
 
 object ReceiptBitmapRenderer {
 
   private sealed interface DrawOp {
     val heightPx: Float
+
+    data class BitmapOp(
+      val bitmap: Bitmap,
+      val leftX: Float,
+      val widthPx: Float,
+      val drawHeightPx: Float,
+      override val heightPx: Float
+    ) : DrawOp
 
     data class TextOp(
       val text: String,
@@ -36,9 +46,22 @@ object ReceiptBitmapRenderer {
     data class SpaceOp(override val heightPx: Float) : DrawOp
   }
 
+  fun fitBitmapToDots(source: Bitmap, maxDotsPerLine: Int): Bitmap {
+    val maxDots = maxDotsPerLine.coerceIn(128, 832)
+    if (source.width <= maxDots || source.width <= 0 || source.height <= 0) {
+      return source
+    }
+    val alignedWidth = ((maxDots / 8) * 8).coerceAtLeast(64)
+    val scaledHeight = ((source.height.toFloat() / source.width.toFloat()) * alignedWidth)
+      .roundToInt()
+      .coerceAtLeast(16)
+    return Bitmap.createScaledBitmap(source, alignedWidth, scaledHeight, true)
+  }
+
   fun renderToEscPosBytes(
     receipt: FormattedReceipt,
-    printerSettings: PrinterSettings
+    printerSettings: PrinterSettings,
+    logoBitmap: Bitmap? = null
   ): ByteArray {
     val widthPx = receipt.layoutSpec.dotsPerLine.coerceIn(256, 832)
     val marginPx = 6f
@@ -66,6 +89,23 @@ object ReceiptBitmapRenderer {
 
     for (element in receipt.elements) {
       when (element) {
+        is ReceiptElement.LogoHeader -> {
+          if (logoBitmap != null && !logoBitmap.isRecycled && logoBitmap.width > 0 && logoBitmap.height > 0) {
+            val maxLogoW = minOf(contentWidthPx, widthPx.toFloat() * 0.68f).coerceAtLeast(120f)
+            val drawW = minOf(logoBitmap.width.toFloat(), maxLogoW)
+            val drawH = (logoBitmap.height.toFloat() / logoBitmap.width.toFloat()) * drawW
+            val leftX = ((widthPx - drawW) / 2f).coerceAtLeast(0f)
+            drawOps.add(
+              DrawOp.BitmapOp(
+                bitmap = logoBitmap,
+                leftX = leftX,
+                widthPx = drawW,
+                drawHeightPx = drawH,
+                heightPx = drawH + 12f
+              )
+            )
+          }
+        }
         is ReceiptElement.BlankLine -> {
           drawOps.add(DrawOp.SpaceOp(baseTextSizePx * 0.6f))
         }
@@ -118,6 +158,16 @@ object ReceiptBitmapRenderer {
       var yCursor = 8f
       for (op in drawOps) {
         when (op) {
+          is DrawOp.BitmapOp -> {
+            val destRect = RectF(
+              op.leftX,
+              yCursor,
+              op.leftX + op.widthPx,
+              yCursor + op.drawHeightPx
+            )
+            canvas.drawBitmap(op.bitmap, null, destRect, null)
+            yCursor += op.heightPx
+          }
           is DrawOp.SpaceOp -> {
             yCursor += op.heightPx
           }
@@ -165,13 +215,15 @@ object ReceiptBitmapRenderer {
         }
       }
 
-      return EscPosCommandBuilder()
+      val builder = EscPosCommandBuilder()
         .initialize()
         .setDensity(printerSettings.printDensity)
         .appendRasterBitmap(bitmap)
         .feedLines(4)
-        .cutPartial()
-        .build()
+      if (printerSettings.autoCutPaper) {
+        builder.cutPartial()
+      }
+      return builder.build()
     } finally {
       bitmap.recycle()
     }

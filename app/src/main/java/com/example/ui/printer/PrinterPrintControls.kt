@@ -60,10 +60,14 @@ fun ReceiptPrintActionSection(
   val colorScheme = MaterialTheme.colorScheme
   val isConnected = connectionState is PrinterConnectionState.Connected
   val isConnecting = connectionState is PrinterConnectionState.Connecting
-  val isPrintingThis = printJobState.isPrinting
+  val hasRememberedPrinter = printerSettings.rememberedPrinterAddress.isNotBlank()
+  val isPrintingOrConnecting = printJobState.isPrinting || isConnecting
   val alreadyPrintedThis = printJobState.isSuccessFor(jobKey)
   val connectedName = (connectionState as? PrinterConnectionState.Connected)?.deviceName
     ?: printerSettings.rememberedPrinterName.ifBlank { "POSIFLOW Printer" }
+
+  val effectiveErrorMessage = printJobState.errorMessage
+    ?: (connectionState as? PrinterConnectionState.Error)?.message
 
   Column(
     modifier = modifier
@@ -87,11 +91,11 @@ fun ReceiptPrintActionSection(
         )
         Text(
           text = when {
-            isConnected -> "Connected: $connectedName • ${printerSettings.selectedPaperWidthLabel}"
-            isConnecting -> "Connecting to printer..."
-            printerSettings.rememberedPrinterAddress.isNotBlank() ->
-              "Disconnected ($connectedName) • ${printerSettings.selectedPaperWidthLabel}"
-            else -> "No Bluetooth printer connected"
+            isConnected -> "Connected: $connectedName (${(connectionState as PrinterConnectionState.Connected).protocolLabel}) • ${printerSettings.selectedPaperWidthLabel}"
+            isConnecting -> "Connecting to $connectedName..."
+            hasRememberedPrinter ->
+              "Ready to auto-connect: $connectedName • ${printerSettings.selectedPaperWidthLabel}"
+            else -> "No Bluetooth printer selected"
           },
           style = MaterialTheme.typography.bodySmall,
           color = if (isConnected) SuccessGreen else colorScheme.onSurfaceVariant,
@@ -124,7 +128,7 @@ fun ReceiptPrintActionSection(
       )
     }
 
-    if (printJobState.errorMessage != null) {
+    if (effectiveErrorMessage != null) {
       Row(
         modifier = Modifier
           .fillMaxWidth()
@@ -140,7 +144,7 @@ fun ReceiptPrintActionSection(
         )
         Spacer(modifier = Modifier.width(8.dp))
         Text(
-          text = printJobState.errorMessage,
+          text = effectiveErrorMessage,
           style = MaterialTheme.typography.bodySmall,
           color = WarningOrange,
           modifier = Modifier.weight(1f)
@@ -170,7 +174,7 @@ fun ReceiptPrintActionSection(
       }
     }
 
-    if (printJobState.paperStatusWarning != null && printJobState.errorMessage == null) {
+    if (printJobState.paperStatusWarning != null && effectiveErrorMessage == null) {
       Text(
         text = printJobState.paperStatusWarning,
         style = MaterialTheme.typography.labelSmall,
@@ -183,8 +187,14 @@ fun ReceiptPrintActionSection(
       horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
       Button(
-        onClick = onPrintBill,
-        enabled = !isPrintingThis && isConnected,
+        onClick = {
+          if (isConnected || hasRememberedPrinter) {
+            onPrintBill()
+          } else {
+            onOpenPrinterSettings()
+          }
+        },
+        enabled = !isPrintingOrConnecting,
         modifier = Modifier
           .weight(1f)
           .height(48.dp)
@@ -192,24 +202,29 @@ fun ReceiptPrintActionSection(
         shape = PrintButtonShape,
         colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)
       ) {
-        if (isPrintingThis) {
+        if (isPrintingOrConnecting) {
           CircularProgressIndicator(
             modifier = Modifier.size(18.dp),
             color = SurfaceLight,
             strokeWidth = 2.dp
           )
           Spacer(modifier = Modifier.width(8.dp))
-          Text("Printing...", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+          Text(
+            text = if (isConnecting) "Connecting..." else "Printing...",
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold
+          )
         } else {
           Icon(
-            imageVector = Icons.Default.Print,
+            imageVector = if (isConnected || hasRememberedPrinter) Icons.Default.Print else Icons.Default.Settings,
             contentDescription = null,
             modifier = Modifier.size(18.dp)
           )
           Spacer(modifier = Modifier.width(6.dp))
           Text(
             text = when {
-              !isConnected -> "Connect Printer to Print"
+              !isConnected && !hasRememberedPrinter -> "Select Printer to Print"
+              !isConnected && hasRememberedPrinter -> "Connect & Print Bill"
               alreadyPrintedThis -> "Print Again"
               else -> "Print Bill"
             },
@@ -219,7 +234,7 @@ fun ReceiptPrintActionSection(
         }
       }
 
-      if (printJobState.errorMessage != null && isConnected && !isPrintingThis) {
+      if (effectiveErrorMessage != null && hasRememberedPrinter && !isPrintingOrConnecting) {
         OutlinedButton(
           onClick = onRetryPrint,
           border = BorderStroke(1.dp, WarningOrange),

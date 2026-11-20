@@ -121,9 +121,21 @@ class PrinterSystemTest {
       timestampMillis = 1_700_000_000_000L
     )
     val bytes = ReceiptFormatter.toEscPosBytes(testReceipt, settings)
-    // Must start with ESC @ (0x1B, 0x40)
+    // Must start with ESC @ (0x1B, 0x40) followed by ESC ! 00 (0x1B, 0x21, 0x00)
     assertEquals(0x1B.toByte(), bytes[0])
     assertEquals(0x40.toByte(), bytes[1])
+    assertEquals(0x1B.toByte(), bytes[2])
+    assertEquals(0x21.toByte(), bytes[3])
+    assertEquals(0x00.toByte(), bytes[4])
+
+    // Default autoCutPaper = false omits GS V cut command (safe for portable tear-bar printers)
+    assertFalse(containsSequence(bytes, byteArrayOf(0x1D, 0x56)))
+
+    val withCutBytes = ReceiptFormatter.toEscPosBytes(
+      testReceipt,
+      settings.copy(autoCutPaper = true)
+    )
+    assertTrue(containsSequence(withCutBytes, byteArrayOf(0x1D, 0x56, 0x42, 0x00)))
 
     val ascii = String(bytes, StandardCharsets.US_ASCII)
     assertTrue(ascii.contains("MEHER BASAN BHANDAR"))
@@ -133,6 +145,21 @@ class PrinterSystemTest {
     assertTrue(ascii.contains("Paper Width: 2 inches (50.8mm)"))
     assertTrue(ascii.contains("Printing: Test"))
     assertTrue(ascii.contains("TEST PRINT SUCCESSFUL"))
+  }
+
+  private fun containsSequence(haystack: ByteArray, needle: ByteArray): Boolean {
+    if (needle.isEmpty() || haystack.size < needle.size) return false
+    for (i in 0..(haystack.size - needle.size)) {
+      var match = true
+      for (j in needle.indices) {
+        if (haystack[i + j] != needle[j]) {
+          match = false
+          break
+        }
+      }
+      if (match) return true
+    }
+    return false
   }
 
   @Test
@@ -323,5 +350,138 @@ class PrinterSystemTest {
     val manualReprint = manager.printInvoice(validInvoice, BusinessSettings(), isAutoPrint = false)
     assertTrue(manualReprint is TransportPrintResult.Sent)
     assertEquals(2, fakeTransport.sentPayloads.size)
+
+    // 6. Disconnected with remembered printer auto-reconnects seamlessly on print
+    manager.disconnect()
+    assertTrue(manager.connectionState.value is PrinterConnectionState.Disconnected)
+    val autoReconnectedPrint = manager.printTestReceipt()
+    assertTrue(autoReconnectedPrint is TransportPrintResult.Sent)
+    assertTrue(manager.connectionState.value is PrinterConnectionState.Connected)
+    assertEquals(3, fakeTransport.sentPayloads.size)
+  }
+
+  @Test
+  fun plainTextFallbackContainsNoEscOrGsControlBytesAndEndsWithLineFeeds() {
+    val settings = PrinterSettings(
+      paperSizePreset = PaperSizePreset.THREE_INCH,
+      renderMode = PrintRenderMode.PLAIN_TEXT
+    )
+    val receipt = ReceiptFormatter.buildTestReceipt(settings)
+    val bytes = ReceiptFormatter.toPlainTextBytes(receipt)
+
+    assertFalse(bytes.any { it == 0x1B.toByte() || it == 0x1D.toByte() })
+    val ascii = String(bytes, StandardCharsets.US_ASCII)
+    assertTrue(ascii.contains("MEHER BASAN BHANDAR"))
+    assertTrue(ascii.contains("TEST PRINT SUCCESSFUL"))
+    assertTrue(ascii.endsWith("\n\n\n\n"))
+  }
+
+  @Test
+  fun testAndInvoiceReceiptsPlaceLogoHeaderFirstAndDecodeMonochromeAssetAcrossPaperWidths() {
+    val context = ApplicationProvider.getApplicationContext<android.app.Application>()
+    val logoProvider = AndroidReceiptLogoProvider(context)
+
+    val widthsToCheck = listOf(
+      PrinterSettings(paperSizePreset = PaperSizePreset.TWO_INCH),
+      PrinterSettings(paperSizePreset = PaperSizePreset.THREE_INCH),
+      PrinterSettings(paperSizePreset = PaperSizePreset.FOUR_INCH),
+      PrinterSettings(paperSizePreset = PaperSizePreset.CUSTOM, customWidthMm = 40f),
+      PrinterSettings(paperSizePreset = PaperSizePreset.CUSTOM, customWidthMm = 108f)
+    )
+
+    val sampleInvoice = Invoice(
+      id = "inv-logo-check",
+      invoiceNumber = "BILL-1001",
+      grandTotalMinor = 25_000L,
+      amountPaidMinor = 25_000L,
+      items = listOf(
+        InvoiceItem(
+          description = "Copper Kalash",
+          quantity = 1.0,
+          unitLabel = "pcs",
+          rateMinor = 25_000L,
+          lineTotalMinor = 25_000L
+        )
+      )
+    )
+
+    for (settings in widthsToCheck) {
+      val testReceipt = ReceiptFormatter.buildTestReceipt(settings)
+      assertTrue(
+        "Test receipt must start with LogoHeader",
+        testReceipt.elements.firstOrNull() is ReceiptElement.LogoHeader
+      )
+      val firstTestText = testReceipt.elements.drop(1).firstOrNull() as? ReceiptElement.TextLine
+      assertNotNull(firstTestText)
+      assertTrue(firstTestText!!.text.contains("MEHER BASAN BHANDAR"))
+
+      val invoiceReceipt = ReceiptFormatter.buildInvoiceReceipt(
+        invoice = sampleInvoice,
+        businessSettings = BusinessSettings(businessName = "Meher Basan Bhandar"),
+        printerSettings = settings
+      )
+      assertTrue(
+        "Invoice receipt must start with LogoHeader",
+        invoiceReceipt.elements.firstOrNull() is ReceiptElement.LogoHeader
+      )
+
+      val dots = invoiceReceipt.layoutSpec.dotsPerLine
+      val logoBitmap = logoProvider.getLogoBitmap(dots)
+      assertNotNull("Logo bitmap should decode for $dots dots", logoBitmap)
+      assertTrue("Logo width ${logoBitmap!!.width} must fit within $dots dots", logoBitmap.width <= dots)
+      assertEquals("Logo width must be byte-aligned", 0, logoBitmap.width % 8)
+
+      val escPosBytes = ReceiptFormatter.toEscPosBytes(invoiceReceipt, settings, logoBitmap)
+      assertTrue(
+        "ESC_POS_TEXT with logo must emit GS v 0 raster command",
+        containsSequence(escPosBytes, byteArrayOf(0x1D, 0x76, 0x30, 0x00))
+      )
+      val escPosAscii = String(escPosBytes, StandardCharsets.US_ASCII)
+      assertTrue(escPosAscii.contains("MEHER BASAN BHANDAR"))
+      assertTrue(escPosAscii.contains("BILL-1001"))
+
+      val rasterBytes = ReceiptBitmapRenderer.renderToEscPosBytes(invoiceReceipt, settings, logoBitmap)
+      assertTrue(
+        "RASTER_BITMAP with logo must emit GS v 0 raster command",
+        containsSequence(rasterBytes, byteArrayOf(0x1D, 0x76, 0x30, 0x00))
+      )
+    }
+  }
+
+  @Test
+  fun plainTextPrintModePrintsLogoWithoutMutatingSavedRenderMode() = runTest {
+    val context = ApplicationProvider.getApplicationContext<android.app.Application>()
+    val settingsRepo = PrinterSettingsRepository(context)
+    settingsRepo.setRenderMode(PrintRenderMode.PLAIN_TEXT)
+    assertEquals(PrintRenderMode.PLAIN_TEXT, settingsRepo.settings.value.renderMode)
+
+    val fakeTransport = FakePrinterTransport()
+    val logoProvider = AndroidReceiptLogoProvider(context)
+    val manager = PrinterManager(
+      settingsRepository = settingsRepo,
+      transport = fakeTransport,
+      logoProvider = logoProvider
+    )
+
+    val posiflow = BluetoothPrinterDevice(
+      name = "POSIFLOW-80BT",
+      address = "AA:BB:CC:DD:EE:11",
+      isPosiflowBrand = true,
+      isLikelyPrinter = true
+    )
+    manager.connect(posiflow)
+
+    val result = manager.printTestReceipt()
+    assertTrue(result is TransportPrintResult.Sent)
+    assertEquals(1, fakeTransport.sentPayloads.size)
+    assertTrue(
+      "Plain-text print with logo should emit raster GS v 0 payload",
+      containsSequence(fakeTransport.sentPayloads.first(), byteArrayOf(0x1D, 0x76, 0x30, 0x00))
+    )
+    assertEquals(
+      "Saved renderMode must stay PLAIN_TEXT",
+      PrintRenderMode.PLAIN_TEXT,
+      settingsRepo.settings.value.renderMode
+    )
   }
 }

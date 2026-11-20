@@ -9,7 +9,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 class ReceiptPrintRepository(
-  private val transport: PrinterTransport
+  private val transport: PrinterTransport,
+  private val logoProvider: ReceiptLogoProvider? = null
 ) {
   private val printMutex = Mutex()
   private val _printJobState = MutableStateFlow(PrintJobState())
@@ -106,9 +107,25 @@ class ReceiptPrintRepository(
     )
 
     val payloadBytes = try {
+      val hasLogoHeader = receipt.elements.any { it is ReceiptElement.LogoHeader }
+      val logoBitmap = if (hasLogoHeader) {
+        runCatching { logoProvider?.getLogoBitmap(receipt.layoutSpec.dotsPerLine) }.getOrNull()
+      } else {
+        null
+      }
       when (settings.renderMode) {
-        PrintRenderMode.ESC_POS_TEXT -> ReceiptFormatter.toEscPosBytes(receipt, settings)
-        PrintRenderMode.RASTER_BITMAP -> ReceiptBitmapRenderer.renderToEscPosBytes(receipt, settings)
+        PrintRenderMode.ESC_POS_TEXT ->
+          ReceiptFormatter.toEscPosBytes(receipt, settings, logoBitmap)
+        PrintRenderMode.RASTER_BITMAP ->
+          ReceiptBitmapRenderer.renderToEscPosBytes(receipt, settings, logoBitmap)
+        PrintRenderMode.PLAIN_TEXT -> {
+          if (logoBitmap != null) {
+            // Print via ESC/POS raster path so monochrome logo still prints without changing saved settings
+            ReceiptBitmapRenderer.renderToEscPosBytes(receipt, settings, logoBitmap)
+          } else {
+            ReceiptFormatter.toPlainTextBytes(receipt)
+          }
+        }
       }
     } catch (e: Exception) {
       lastFailedRequest = PendingPrintPayload(jobKey, receipt, settings)
@@ -140,11 +157,14 @@ class ReceiptPrintRepository(
       }
       is TransportPrintResult.Failed -> {
         lastFailedRequest = PendingPrintPayload(jobKey, receipt, settings)
+        val connErrorMsg = if (result.disconnected) {
+          (transport.connectionState.value as? PrinterConnectionState.Error)?.message
+        } else null
         _printJobState.value = PrintJobState(
           isPrinting = false,
           lastPrintedKey = _printJobState.value.lastPrintedKey,
           statusMessage = null,
-          errorMessage = result.message,
+          errorMessage = connErrorMsg ?: result.message,
           paperStatusWarning = receipt.layoutSpec.widthWarning
         )
       }

@@ -56,6 +56,10 @@ enum class PrintRenderMode(val label: String, val subtitle: String) {
   RASTER_BITMAP(
     label = "Graphics / Raster",
     subtitle = "Supports ₹ symbol & regional Unicode scripts"
+  ),
+  PLAIN_TEXT(
+    label = "Plain Text (Raw)",
+    subtitle = "Fallback mode without formatting commands for strict printers"
   )
 }
 
@@ -83,6 +87,7 @@ data class PrinterSettings(
   val fontSize: ReceiptFontSize = ReceiptFontSize.NORMAL,
   val boldText: Boolean = false,
   val autoPrintAfterBill: Boolean = false,
+  val autoCutPaper: Boolean = false,
   val renderMode: PrintRenderMode = PrintRenderMode.ESC_POS_TEXT
 ) {
   companion object {
@@ -190,13 +195,18 @@ data class BluetoothPrinterDevice(
   val address: String,
   val isPosiflowBrand: Boolean,
   val isLikelyPrinter: Boolean,
-  val transportType: PrinterTransportType = PrinterTransportType.BLUETOOTH_CLASSIC_SPP
+  val transportType: PrinterTransportType = PrinterTransportType.BLUETOOTH_CLASSIC_SPP,
+  val deviceTypeLabel: String = ""
 )
 
 sealed interface PrinterConnectionState {
   data object Disconnected : PrinterConnectionState
   data class Connecting(val deviceName: String, val deviceAddress: String) : PrinterConnectionState
-  data class Connected(val deviceName: String, val deviceAddress: String) : PrinterConnectionState
+  data class Connected(
+    val deviceName: String,
+    val deviceAddress: String,
+    val protocolLabel: String = "Bluetooth SPP"
+  ) : PrinterConnectionState
   data class Error(val message: String, val deviceName: String? = null) : PrinterConnectionState
 }
 

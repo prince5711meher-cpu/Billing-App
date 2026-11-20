@@ -10,6 +10,7 @@ class EscPosCommandBuilder {
 
   fun initialize(): EscPosCommandBuilder = apply {
     writeBytes(0x1B, 0x40) // ESC @
+    writeBytes(0x1B, 0x21, 0x00) // ESC ! 00 (reset print mode to default text)
   }
 
   fun setCodePageCp437(): EscPosCommandBuilder = apply {
@@ -31,18 +32,15 @@ class EscPosCommandBuilder {
         writeBytes(0x1D, 0x21, 0x00) // GS ! 0
       }
       ReceiptFontSize.NORMAL -> {
-        writeBytes(0x1B, 0x4D, 0) // ESC M 0 (Font A)
-        writeBytes(0x1D, 0x21, 0x00) // GS ! 0
+        writeBytes(0x1D, 0x21, 0x00) // GS ! 0 (standard size)
       }
       ReceiptFontSize.LARGE -> {
-        writeBytes(0x1B, 0x4D, 0) // ESC M 0 (Font A)
         writeBytes(0x1D, 0x21, 0x01) // Double height for readability without losing column width
       }
     }
   }
 
   fun setDoubleSizeHeader(enabled: Boolean): EscPosCommandBuilder = apply {
-    writeBytes(0x1B, 0x4D, 0)
     writeBytes(0x1D, 0x21, if (enabled) 0x11 else 0x00)
   }
 
@@ -67,9 +65,9 @@ class EscPosCommandBuilder {
   }
 
   fun feedLines(lines: Int): EscPosCommandBuilder = apply {
-    val clamped = lines.coerceIn(0, 255)
-    if (clamped > 0) {
-      writeBytes(0x1B, 0x64, clamped) // ESC d n
+    val clamped = lines.coerceIn(0, 20)
+    repeat(clamped) {
+      buffer.write('\n'.code) // Explicit LF ensures 100% of ESC/POS & serial printers flush + feed
     }
   }
 

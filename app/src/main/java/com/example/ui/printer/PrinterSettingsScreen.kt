@@ -104,6 +104,8 @@ fun PrinterSettingsScreen(
   val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
   val printJobState by viewModel.printJobState.collectAsStateWithLifecycle()
   val pairedResult by viewModel.pairedDevicesResult.collectAsStateWithLifecycle()
+  val bleScanResult by viewModel.bleScanResult.collectAsStateWithLifecycle()
+  val isScanningBle by viewModel.isScanningBle.collectAsStateWithLifecycle()
   val layoutSpec by viewModel.layoutSpec.collectAsStateWithLifecycle()
   val hasPermission by viewModel.hasBluetoothPermission.collectAsStateWithLifecycle()
 
@@ -113,16 +115,34 @@ fun PrinterSettingsScreen(
     viewModel.onPermissionResult(granted)
   }
 
+  val bleScanPermissionLauncher = rememberLauncherForActivityResult(
+    contract = ActivityResultContracts.RequestPermission()
+  ) { granted ->
+    if (granted || viewModel.hasScanPermission()) {
+      viewModel.scanNearbyBleDevices()
+    }
+  }
+
   LaunchedEffect(Unit) {
     viewModel.refreshBluetoothState()
   }
 
-  val requestBluetoothPermission = remember(permissionLauncher, context) {
+  val requestBluetoothPermission = remember(permissionLauncher) {
     {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         permissionLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT)
       } else {
         viewModel.refreshBluetoothState()
+      }
+    }
+  }
+
+  val onStartBleScan = remember(bleScanPermissionLauncher, viewModel) {
+    {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !viewModel.hasScanPermission()) {
+        bleScanPermissionLauncher.launch(Manifest.permission.BLUETOOTH_SCAN)
+      } else {
+        viewModel.scanNearbyBleDevices()
       }
     }
   }
@@ -188,13 +208,15 @@ fun PrinterSettingsScreen(
     BluetoothConnectionCard(
       hasPermission = hasPermission,
       pairedResult = pairedResult,
+      bleScanResult = bleScanResult,
+      isScanningBle = isScanningBle,
       printerSettings = printerSettings,
       connectionState = connectionState,
       onRequestPermission = requestBluetoothPermission,
       onOpenAppSettings = openAppPermissionSettings,
       onOpenBluetoothSettings = openBluetoothSettings,
       onRefreshDevices = { viewModel.refreshBluetoothState() },
-      onSelectDevice = { device -> viewModel.selectPrinter(device) },
+      onScanBle = onStartBleScan,
       onConnectDevice = { device -> viewModel.connectToDevice(device) },
       onConnectRemembered = { viewModel.connectRememberedPrinter() },
       onDisconnect = { viewModel.disconnectPrinter() }
@@ -217,7 +239,8 @@ fun PrinterSettingsScreen(
       onSelectAlignment = { viewModel.setTextAlignment(it) },
       onSelectFontSize = { viewModel.setFontSize(it) },
       onToggleBoldText = { viewModel.setBoldText(it) },
-      onToggleAutoPrint = { viewModel.setAutoPrintAfterBill(it) }
+      onToggleAutoPrint = { viewModel.setAutoPrintAfterBill(it) },
+      onToggleAutoCut = { viewModel.setAutoCutPaper(it) }
     )
 
     // Section 4: Test Printing
@@ -235,13 +258,15 @@ fun PrinterSettingsScreen(
 private fun BluetoothConnectionCard(
   hasPermission: Boolean,
   pairedResult: PairedDevicesResult,
+  bleScanResult: PairedDevicesResult?,
+  isScanningBle: Boolean,
   printerSettings: PrinterSettings,
   connectionState: PrinterConnectionState,
   onRequestPermission: () -> Unit,
   onOpenAppSettings: () -> Unit,
   onOpenBluetoothSettings: () -> Unit,
   onRefreshDevices: () -> Unit,
-  onSelectDevice: (BluetoothPrinterDevice) -> Unit,
+  onScanBle: () -> Unit,
   onConnectDevice: (BluetoothPrinterDevice) -> Unit,
   onConnectRemembered: () -> Unit,
   onDisconnect: () -> Unit
@@ -252,7 +277,7 @@ private fun BluetoothConnectionCard(
 
   val (statusLabel, statusColor, statusIcon) = when (connectionState) {
     is PrinterConnectionState.Connected -> Triple(
-      "Connected to ${connectionState.deviceName}",
+      "Connected: ${connectionState.deviceName} (${connectionState.protocolLabel})",
       SuccessGreen,
       Icons.Default.BluetoothConnected
     )
@@ -478,22 +503,34 @@ private fun BluetoothConnectionCard(
           verticalAlignment = Alignment.CenterVertically
         ) {
           Text(
-            text = "Paired Bluetooth Devices (${devices.size})",
+            text = "Paired Devices (${devices.size})",
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold
           )
-          OutlinedButton(
-            onClick = onOpenBluetoothSettings,
-            modifier = Modifier.height(40.dp),
-            shape = PrinterChipShape
-          ) {
-            Text("Pair New", fontSize = 12.sp)
+          Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+              OutlinedButton(
+                onClick = onScanBle,
+                enabled = !isScanningBle,
+                modifier = Modifier.height(48.dp),
+                shape = PrinterChipShape
+              ) {
+                Text(if (isScanningBle) "Scanning..." else "Scan BLE", fontSize = 11.sp)
+              }
+            }
+            OutlinedButton(
+              onClick = onOpenBluetoothSettings,
+              modifier = Modifier.height(48.dp),
+              shape = PrinterChipShape
+            ) {
+              Text("Pair New", fontSize = 11.sp)
+            }
           }
         }
 
         if (devices.isEmpty()) {
           Text(
-            text = "No paired Bluetooth devices found. Pair your POSIFLOW printer in Android Bluetooth settings first, then tap Refresh.",
+            text = "No paired Bluetooth devices found. Pair your POSIFLOW printer in Android Bluetooth settings or tap Scan BLE, then tap Refresh.",
             style = MaterialTheme.typography.bodySmall,
             color = colorScheme.onSurfaceVariant
           )
@@ -510,11 +547,49 @@ private fun BluetoothConnectionCard(
                 isConnected = isDeviceConnected,
                 isConnecting = connectionState is PrinterConnectionState.Connecting &&
                   connectionState.deviceAddress.equals(device.address, ignoreCase = true),
-                onSelect = { onSelectDevice(device) },
                 onConnect = { onConnectDevice(device) }
               )
             }
           }
+        }
+
+        if (bleScanResult is PairedDevicesResult.Success) {
+          val bleDevices = bleScanResult.devices
+          HorizontalDivider(color = colorScheme.outline)
+          Text(
+            text = "Nearby BLE Printers (${bleDevices.size})",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold
+          )
+          if (bleDevices.isEmpty()) {
+            Text(
+              text = "No nearby BLE printers found. Ensure your POSIFLOW printer is powered on.",
+              style = MaterialTheme.typography.bodySmall,
+              color = colorScheme.onSurfaceVariant
+            )
+          } else {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+              bleDevices.forEach { device ->
+                val isSelected = device.address.equals(printerSettings.rememberedPrinterAddress, ignoreCase = true)
+                val isDeviceConnected = connectionState is PrinterConnectionState.Connected &&
+                  connectionState.deviceAddress.equals(device.address, ignoreCase = true)
+                PairedPrinterRow(
+                  device = device,
+                  isSelected = isSelected,
+                  isConnected = isDeviceConnected,
+                  isConnecting = connectionState is PrinterConnectionState.Connecting &&
+                    connectionState.deviceAddress.equals(device.address, ignoreCase = true),
+                  onConnect = { onConnectDevice(device) }
+                )
+              }
+            }
+          }
+        } else if (bleScanResult is PairedDevicesResult.Error) {
+          Text(
+            text = bleScanResult.message,
+            style = MaterialTheme.typography.bodySmall,
+            color = WarningOrange
+          )
         }
       }
     }
@@ -527,7 +602,6 @@ private fun PairedPrinterRow(
   isSelected: Boolean,
   isConnected: Boolean,
   isConnecting: Boolean,
-  onSelect: () -> Unit,
   onConnect: () -> Unit
 ) {
   val colorScheme = MaterialTheme.colorScheme
@@ -546,7 +620,7 @@ private fun PairedPrinterRow(
         PrinterButtonShape
       )
       .border(1.dp, borderColor, PrinterButtonShape)
-      .clickable(onClick = onSelect)
+      .clickable(enabled = !isConnecting && !isConnected, onClick = onConnect)
       .padding(horizontal = 12.dp, vertical = 10.dp),
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -590,8 +664,9 @@ private fun PairedPrinterRow(
           }
         }
       }
+      val metaSuffix = if (device.deviceTypeLabel.isNotBlank()) " • ${device.deviceTypeLabel}" else ""
       Text(
-        text = device.address,
+        text = "${device.address}$metaSuffix",
         style = MaterialTheme.typography.labelSmall,
         color = colorScheme.onSurfaceVariant
       )
@@ -657,14 +732,20 @@ private fun ReceiptConfigurationCard(
       verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
       PaperSizePreset.entries.forEach { preset ->
+        val selected = printerSettings.paperSizePreset == preset
         FilterChip(
-          selected = printerSettings.paperSizePreset == preset,
+          selected = selected,
           onClick = { onSelectPreset(preset) },
           label = { Text(preset.label, fontSize = 12.sp) },
           modifier = Modifier.testTag("paper_preset_${preset.name.lowercase()}"),
           colors = FilterChipDefaults.filterChipColors(
             selectedContainerColor = PrimaryBlue,
             selectedLabelColor = SurfaceLight
+          ),
+          border = FilterChipDefaults.filterChipBorder(
+            enabled = true,
+            selected = selected,
+            borderColor = colorScheme.outline
           )
         )
       }
@@ -750,13 +831,19 @@ private fun ReceiptConfigurationCard(
       verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
       PrinterMaxWidthOption.entries.forEach { option ->
+        val selected = printerSettings.printerMaxWidthOption == option
         FilterChip(
-          selected = printerSettings.printerMaxWidthOption == option,
+          selected = selected,
           onClick = { onSelectMaxPrinterWidth(option) },
           label = { Text(option.label, fontSize = 11.sp) },
           colors = FilterChipDefaults.filterChipColors(
             selectedContainerColor = PrimaryBlue,
             selectedLabelColor = SurfaceLight
+          ),
+          border = FilterChipDefaults.filterChipBorder(
+            enabled = true,
+            selected = selected,
+            borderColor = colorScheme.outline
           )
         )
       }
@@ -804,7 +891,8 @@ private fun PrintingPreferencesCard(
   onSelectAlignment: (ReceiptAlignment) -> Unit,
   onSelectFontSize: (ReceiptFontSize) -> Unit,
   onToggleBoldText: (Boolean) -> Unit,
-  onToggleAutoPrint: (Boolean) -> Unit
+  onToggleAutoPrint: (Boolean) -> Unit,
+  onToggleAutoCut: (Boolean) -> Unit
 ) {
   val colorScheme = MaterialTheme.colorScheme
 
@@ -833,13 +921,19 @@ private fun PrintingPreferencesCard(
       verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
       PrintRenderMode.entries.forEach { mode ->
+        val selected = printerSettings.renderMode == mode
         FilterChip(
-          selected = printerSettings.renderMode == mode,
+          selected = selected,
           onClick = { onSelectRenderMode(mode) },
           label = { Text(mode.label, fontSize = 12.sp) },
           colors = FilterChipDefaults.filterChipColors(
             selectedContainerColor = PrimaryBlue,
             selectedLabelColor = SurfaceLight
+          ),
+          border = FilterChipDefaults.filterChipBorder(
+            enabled = true,
+            selected = selected,
+            borderColor = colorScheme.outline
           )
         )
       }
@@ -858,13 +952,19 @@ private fun PrintingPreferencesCard(
     )
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
       PrintDensity.entries.forEach { density ->
+        val selected = printerSettings.printDensity == density
         FilterChip(
-          selected = printerSettings.printDensity == density,
+          selected = selected,
           onClick = { onSelectDensity(density) },
           label = { Text(density.label, fontSize = 12.sp) },
           colors = FilterChipDefaults.filterChipColors(
             selectedContainerColor = PrimaryBlue,
             selectedLabelColor = SurfaceLight
+          ),
+          border = FilterChipDefaults.filterChipBorder(
+            enabled = true,
+            selected = selected,
+            borderColor = colorScheme.outline
           )
         )
       }
@@ -878,13 +978,19 @@ private fun PrintingPreferencesCard(
     )
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
       ReceiptAlignment.entries.forEach { align ->
+        val selected = printerSettings.textAlignment == align
         FilterChip(
-          selected = printerSettings.textAlignment == align,
+          selected = selected,
           onClick = { onSelectAlignment(align) },
           label = { Text(align.label, fontSize = 12.sp) },
           colors = FilterChipDefaults.filterChipColors(
             selectedContainerColor = PrimaryBlue,
             selectedLabelColor = SurfaceLight
+          ),
+          border = FilterChipDefaults.filterChipBorder(
+            enabled = true,
+            selected = selected,
+            borderColor = colorScheme.outline
           )
         )
       }
@@ -898,13 +1004,19 @@ private fun PrintingPreferencesCard(
     )
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
       ReceiptFontSize.entries.forEach { size ->
+        val selected = printerSettings.fontSize == size
         FilterChip(
-          selected = printerSettings.fontSize == size,
+          selected = selected,
           onClick = { onSelectFontSize(size) },
           label = { Text(size.label, fontSize = 12.sp) },
           colors = FilterChipDefaults.filterChipColors(
             selectedContainerColor = PrimaryBlue,
             selectedLabelColor = SurfaceLight
+          ),
+          border = FilterChipDefaults.filterChipBorder(
+            enabled = true,
+            selected = selected,
+            borderColor = colorScheme.outline
           )
         )
       }
@@ -946,6 +1058,24 @@ private fun PrintingPreferencesCard(
         modifier = Modifier.testTag("auto_print_switch")
       )
     }
+
+    Row(
+      modifier = Modifier
+        .fillMaxWidth()
+        .height(48.dp),
+      horizontalArrangement = Arrangement.SpaceBetween,
+      verticalAlignment = Alignment.CenterVertically
+    ) {
+      Column(modifier = Modifier.weight(1f)) {
+        Text("Auto-Cut Paper (Desktop Cutters)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+        Text("Keep OFF for portable tear-bar printers (POSIFLOW 2\"/3\")", style = MaterialTheme.typography.labelSmall, color = colorScheme.onSurfaceVariant)
+      }
+      Switch(
+        checked = printerSettings.autoCutPaper,
+        onCheckedChange = onToggleAutoCut,
+        modifier = Modifier.testTag("auto_cut_switch")
+      )
+    }
   }
 }
 
@@ -974,7 +1104,7 @@ private fun PrinterTestCard(
       fontWeight = FontWeight.Bold
     )
     Text(
-      text = "Prints MEHER BASAN BHANDAR • POSIFLOW • Bluetooth • ${printerSettings.selectedPaperWidthLabel} verification receipt.",
+      text = "Prints MEHER BASAN BHANDAR • POSIFLOW • Bluetooth • ${printerSettings.selectedPaperWidthLabel} verification receipt. If sent but paper stays blank, try switching Printing Protocol Mode above.",
       style = MaterialTheme.typography.bodySmall,
       color = colorScheme.onSurfaceVariant
     )
@@ -1028,7 +1158,14 @@ private fun PrinterTestCard(
         } else {
           Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(18.dp))
           Spacer(modifier = Modifier.width(8.dp))
-          Text("Print Test Receipt", fontWeight = FontWeight.SemiBold)
+          Text(
+            text = if (isConnected || printerSettings.rememberedPrinterAddress.isBlank()) {
+              "Print Test Receipt"
+            } else {
+              "Connect & Print Test"
+            },
+            fontWeight = FontWeight.SemiBold
+          )
         }
       }
 

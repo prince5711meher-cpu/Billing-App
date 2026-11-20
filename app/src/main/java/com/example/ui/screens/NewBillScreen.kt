@@ -674,12 +674,26 @@ private fun BillHeaderCard(
         colors = FilterChipDefaults.filterChipColors(
           selectedContainerColor = PrimaryBlue,
           selectedLabelColor = SurfaceLight
+        ),
+        border = FilterChipDefaults.filterChipBorder(
+          enabled = true,
+          selected = documentType == "INVOICE",
+          borderColor = borderColor
         )
       )
       FilterChip(
         selected = documentType == "QUOTATION",
         onClick = { onSelectDocumentType("QUOTATION") },
-        label = { Text("Estimate", fontSize = 12.sp) }
+        label = { Text("Estimate", fontSize = 12.sp) },
+        colors = FilterChipDefaults.filterChipColors(
+          selectedContainerColor = PrimaryBlue,
+          selectedLabelColor = SurfaceLight
+        ),
+        border = FilterChipDefaults.filterChipBorder(
+          enabled = true,
+          selected = documentType == "QUOTATION",
+          borderColor = borderColor
+        )
       )
     }
   }
@@ -876,12 +890,30 @@ private fun ManualItemEntryCard(
           FilterChip(
             selected = itemDiscountType == "FIXED",
             onClick = { itemDiscountType = "FIXED" },
-            label = { Text("₹ Flat", fontSize = 11.sp) }
+            label = { Text("₹ Flat", fontSize = 11.sp) },
+            colors = FilterChipDefaults.filterChipColors(
+              selectedContainerColor = PrimaryBlue,
+              selectedLabelColor = SurfaceLight
+            ),
+            border = FilterChipDefaults.filterChipBorder(
+              enabled = true,
+              selected = itemDiscountType == "FIXED",
+              borderColor = borderColor
+            )
           )
           FilterChip(
             selected = itemDiscountType == "PERCENTAGE",
             onClick = { itemDiscountType = "PERCENTAGE" },
-            label = { Text("% Off", fontSize = 11.sp) }
+            label = { Text("% Off", fontSize = 11.sp) },
+            colors = FilterChipDefaults.filterChipColors(
+              selectedContainerColor = PrimaryBlue,
+              selectedLabelColor = SurfaceLight
+            ),
+            border = FilterChipDefaults.filterChipBorder(
+              enabled = true,
+              selected = itemDiscountType == "PERCENTAGE",
+              borderColor = borderColor
+            )
           )
         }
       }
@@ -1130,12 +1162,30 @@ private fun BillSummaryAndPaymentCard(
           FilterChip(
             selected = draft.discountType == "FIXED",
             onClick = { onSetDiscount("FIXED", overallDiscountInput.toDoubleOrNull() ?: 0.0) },
-            label = { Text("₹ Flat", fontSize = 11.sp) }
+            label = { Text("₹ Flat", fontSize = 11.sp) },
+            colors = FilterChipDefaults.filterChipColors(
+              selectedContainerColor = PrimaryBlue,
+              selectedLabelColor = SurfaceLight
+            ),
+            border = FilterChipDefaults.filterChipBorder(
+              enabled = true,
+              selected = draft.discountType == "FIXED",
+              borderColor = borderColor
+            )
           )
           FilterChip(
             selected = draft.discountType == "PERCENTAGE",
             onClick = { onSetDiscount("PERCENTAGE", overallDiscountInput.toDoubleOrNull() ?: 0.0) },
-            label = { Text("% Off", fontSize = 11.sp) }
+            label = { Text("% Off", fontSize = 11.sp) },
+            colors = FilterChipDefaults.filterChipColors(
+              selectedContainerColor = PrimaryBlue,
+              selectedLabelColor = SurfaceLight
+            ),
+            border = FilterChipDefaults.filterChipBorder(
+              enabled = true,
+              selected = draft.discountType == "PERCENTAGE",
+              borderColor = borderColor
+            )
           )
         }
       }
@@ -1515,12 +1565,30 @@ private fun EditLineItemSheet(
             FilterChip(
               selected = discType == "FIXED",
               onClick = { discType = "FIXED" },
-              label = { Text("₹ Flat", fontSize = 11.sp) }
+              label = { Text("₹ Flat", fontSize = 11.sp) },
+              colors = FilterChipDefaults.filterChipColors(
+                selectedContainerColor = PrimaryBlue,
+                selectedLabelColor = SurfaceLight
+              ),
+              border = FilterChipDefaults.filterChipBorder(
+                enabled = true,
+                selected = discType == "FIXED",
+                borderColor = BorderLight
+              )
             )
             FilterChip(
               selected = discType == "PERCENTAGE",
               onClick = { discType = "PERCENTAGE" },
-              label = { Text("% Off", fontSize = 11.sp) }
+              label = { Text("% Off", fontSize = 11.sp) },
+              colors = FilterChipDefaults.filterChipColors(
+                selectedContainerColor = PrimaryBlue,
+                selectedLabelColor = SurfaceLight
+              ),
+              border = FilterChipDefaults.filterChipBorder(
+                enabled = true,
+                selected = discType == "PERCENTAGE",
+                borderColor = BorderLight
+              )
             )
           }
         }

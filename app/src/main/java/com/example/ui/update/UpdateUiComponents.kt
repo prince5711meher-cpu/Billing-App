@@ -197,7 +197,7 @@ fun SettingsUpdateSection(
         is UpdateCheckResult.UpToDate -> {
           Spacer(modifier = Modifier.height(10.dp))
           StatusNoticeBox(
-            text = "You are on the latest version of Billing App.",
+            text = "You are on the latest version of Meher.",
             tint = SuccessGreen,
             icon = Icons.Default.CheckCircle
           )
@@ -337,7 +337,7 @@ fun SettingsUpdateSection(
           color = TextSecondary
         )
         Text(
-          text = "2. If Android asks, enable \"Allow from this source\" for Billing App.",
+          text = "2. If Android asks, enable \"Allow from this source\" for Meher.",
           fontSize = 11.sp,
           color = TextSecondary
         )
@@ -765,7 +765,7 @@ private fun DownloadProgressAndErrorBlock(
       if (!hasInstallPermission) {
         Spacer(modifier = Modifier.height(8.dp))
         StatusNoticeBox(
-          text = "Permission required: Allow Billing App to install unknown apps in Android Settings.",
+          text = "Permission required: Allow Meher to install unknown apps in Android Settings.",
           tint = WarningOrange,
           icon = Icons.Default.Security
         )

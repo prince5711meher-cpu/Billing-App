@@ -195,13 +195,19 @@ fun InvoicesScreen(
       horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
       for ((key, label) in filterChips) {
+        val selected = filterStatus == key
         FilterChip(
-          selected = filterStatus == key,
+          selected = selected,
           onClick = { filterStatus = key },
           label = { Text(label, fontSize = 12.sp) },
           colors = FilterChipDefaults.filterChipColors(
             selectedContainerColor = PrimaryBlue,
             selectedLabelColor = SurfaceLight
+          ),
+          border = FilterChipDefaults.filterChipBorder(
+            enabled = true,
+            selected = selected,
+            borderColor = borderColor
           )
         )
       }
@@ -545,10 +551,20 @@ fun InvoicesScreen(
           Spacer(modifier = Modifier.height(4.dp))
           Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             listOf("CASH", "UPI", "CARD").forEach { m ->
+              val selected = paymentMethodInput == m
               FilterChip(
-                selected = paymentMethodInput == m,
+                selected = selected,
                 onClick = { paymentMethodInput = m },
-                label = { Text(m, fontSize = 11.sp) }
+                label = { Text(m, fontSize = 11.sp) },
+                colors = FilterChipDefaults.filterChipColors(
+                  selectedContainerColor = PrimaryBlue,
+                  selectedLabelColor = SurfaceLight
+                ),
+                border = FilterChipDefaults.filterChipBorder(
+                  enabled = true,
+                  selected = selected,
+                  borderColor = borderColor
+                )
               )
             }
           }

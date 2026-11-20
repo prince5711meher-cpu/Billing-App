@@ -34,6 +34,7 @@ class PrinterViewModel(application: Application) : AndroidViewModel(application)
   val connectionState: StateFlow<PrinterConnectionState> = manager.connectionState
   val printJobState: StateFlow<PrintJobState> = manager.printJobState
   val pairedDevicesResult: StateFlow<PairedDevicesResult> = manager.pairedDevicesResult
+  val bleScanResult: StateFlow<PairedDevicesResult?> = manager.bleScanResult
 
   val layoutSpec: StateFlow<ReceiptLayoutSpec> = printerSettings
     .map { it.computeLayoutSpec() }
@@ -46,9 +47,14 @@ class PrinterViewModel(application: Application) : AndroidViewModel(application)
   private val _hasBluetoothPermission = MutableStateFlow(manager.hasBluetoothPermission())
   val hasBluetoothPermission: StateFlow<Boolean> = _hasBluetoothPermission.asStateFlow()
 
+  private val _isScanningBle = MutableStateFlow(false)
+  val isScanningBle: StateFlow<Boolean> = _isScanningBle.asStateFlow()
+
   init {
     refreshBluetoothState()
   }
+
+  fun hasScanPermission(): Boolean = manager.hasScanPermission()
 
   fun refreshBluetoothState() {
     val permitted = manager.hasBluetoothPermission()
@@ -61,6 +67,18 @@ class PrinterViewModel(application: Application) : AndroidViewModel(application)
   fun onPermissionResult(granted: Boolean) {
     _hasBluetoothPermission.value = granted || manager.hasBluetoothPermission()
     refreshBluetoothState()
+  }
+
+  fun scanNearbyBleDevices() {
+    if (_isScanningBle.value) return
+    viewModelScope.launch {
+      _isScanningBle.value = true
+      try {
+        manager.scanNearbyBleDevices()
+      } finally {
+        _isScanningBle.value = false
+      }
+    }
   }
 
   fun selectPrinter(device: BluetoothPrinterDevice) {
@@ -117,6 +135,10 @@ class PrinterViewModel(application: Application) : AndroidViewModel(application)
     manager.settingsRepository.setAutoPrintAfterBill(enabled)
   }
 
+  fun setAutoCutPaper(enabled: Boolean) {
+    manager.settingsRepository.setAutoCutPaper(enabled)
+  }
+
   fun setRenderMode(mode: PrintRenderMode) {
     manager.settingsRepository.setRenderMode(mode)
   }
@@ -134,8 +156,11 @@ class PrinterViewModel(application: Application) : AndroidViewModel(application)
   }
 
   fun autoPrintBillIfEnabled(invoice: Invoice, businessSettings: BusinessSettings) {
-    if (!printerSettings.value.autoPrintAfterBill) return
-    if (connectionState.value !is PrinterConnectionState.Connected) return
+    val s = printerSettings.value
+    if (!s.autoPrintAfterBill) return
+    val canPrint = connectionState.value is PrinterConnectionState.Connected ||
+      s.rememberedPrinterAddress.isNotBlank()
+    if (!canPrint) return
     viewModelScope.launch {
       manager.printInvoice(invoice = invoice, businessSettings = businessSettings, isAutoPrint = true)
     }

@@ -241,13 +241,19 @@ fun ReportsScreen(
       horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
       for ((key, label) in periods) {
+        val selected = selectedPeriod == key
         FilterChip(
-          selected = selectedPeriod == key,
+          selected = selected,
           onClick = { selectedPeriod = key },
           label = { Text(label, fontSize = 12.sp) },
           colors = FilterChipDefaults.filterChipColors(
             selectedContainerColor = PrimaryBlue,
             selectedLabelColor = SurfaceLight
+          ),
+          border = FilterChipDefaults.filterChipBorder(
+            enabled = true,
+            selected = selected,
+            borderColor = borderColor
           )
         )
       }
